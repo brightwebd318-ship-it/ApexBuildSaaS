@@ -63,8 +63,9 @@ export default function ContractorDashboard() {
   const [showEditBudgetModal, setShowEditBudgetModal] = useState(false);
   const [editBudgetAmount, setEditBudgetAmount] = useState('');
 
-  // Notifications Drawer
-  const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
+  // Notifications Dropdown
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
+  const [viewAllNotifications, setViewAllNotifications] = useState(false);
 
   // Document folder expansion state
   const [expandedFolders, setExpandedFolders] = useState({
@@ -922,24 +923,122 @@ export default function ContractorDashboard() {
                 <p className="text-xs text-slate-400">Enterprise Tenant</p>
               </div>
 
-              {/* Sleek Notification Drawer Bell Icon */}
+              {/* Sleek Notification Bell with Dropdown */}
               <div className="relative">
                 <button
-                  onClick={() => setShowNotificationsDrawer(!showNotificationsDrawer)}
+                  onClick={() => {
+                    setShowNotificationsDropdown(!showNotificationsDropdown);
+                    if (!showNotificationsDropdown) {
+                      setViewAllNotifications(false);
+                    }
+                  }}
                   className={`p-2 rounded-xl border transition-all relative ${
-                    showNotificationsDrawer 
+                    showNotificationsDropdown 
                       ? 'border-sky-500 bg-sky-500/10 text-sky-400' 
                       : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-700'
                   }`}
                   title="Notifications"
                 >
                   <Bell className="h-4.5 w-4.5" />
-                  {notifications.filter(n => !n.read).length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-extrabold text-white animate-pulse">
-                      {notifications.filter(n => !n.read).length}
-                    </span>
+                  {notifications.some(n => !n.read) && (
+                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-slate-900 animate-pulse-soft" />
                   )}
                 </button>
+
+                {showNotificationsDropdown && (
+                  <>
+                    {/* Invisible overlay to close dropdown on click outside */}
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => {
+                        setShowNotificationsDropdown(false);
+                        setViewAllNotifications(false);
+                      }} 
+                    />
+                    
+                    {/* Dropdown panel */}
+                    <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border border-slate-800 bg-slate-900/95 p-4 shadow-2xl backdrop-blur-md z-50 animate-dropdown space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-850 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Bell className="h-4 w-4 text-sky-400" />
+                          <h3 className="font-bold text-white text-xs sm:text-sm">Contractor Logs</h3>
+                        </div>
+                        {notifications.some(n => !n.read) && (
+                          <button 
+                            onClick={handleMarkAllNotificationsRead}
+                            className="text-[10px] text-sky-400 hover:underline font-bold"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                        {notifications.length === 0 ? (
+                          <div className="text-center py-8 text-slate-500 text-xs">
+                            Your inbox is completely empty.
+                          </div>
+                        ) : (
+                          (viewAllNotifications ? notifications : notifications.slice(0, 5)).map((n) => (
+                            <div
+                              key={n.id}
+                              onClick={() => {
+                                if (!n.read) {
+                                  handleMarkNotificationRead(n.id);
+                                }
+                              }}
+                              className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
+                                n.read
+                                  ? 'border-slate-850 bg-slate-950/20 text-slate-400'
+                                  : 'border-sky-500/20 bg-sky-500/5 text-slate-200 shadow-sm'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <h4 className="font-bold text-xs text-white">{n.title}</h4>
+                                {!n.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMarkNotificationRead(n.id);
+                                    }}
+                                    className="text-[9px] font-bold text-sky-455 hover:underline shrink-0"
+                                  >
+                                    Mark read
+                                  </button>
+                                )}
+                              </div>
+                              <p className="text-[11px] leading-normal text-slate-350">{n.message}</p>
+                              <span className="text-[9px] text-slate-555 block font-mono mt-0.5">{n.date}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center border-t border-slate-850 pt-3 text-[10px]">
+                        {notifications.length > 5 && !viewAllNotifications ? (
+                          <button
+                            onClick={() => setViewAllNotifications(true)}
+                            className="font-bold text-sky-400 hover:text-sky-300 hover:underline"
+                          >
+                            View All Notifications
+                          </button>
+                        ) : (
+                          <span className="text-slate-500 font-semibold uppercase tracking-wider">All caught up</span>
+                        )}
+                        
+                        <button
+                          onClick={() => {
+                            setShowNotificationsDropdown(false);
+                            setViewAllNotifications(false);
+                          }}
+                          className="font-bold text-slate-455 hover:text-white"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <button
@@ -952,69 +1051,6 @@ export default function ContractorDashboard() {
           </div>
         </div>
       </header>
-
-      {/* Notifications Drawer */}
-      {showNotificationsDrawer && (
-        <div className="fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-slate-900/95 border-l border-slate-800 p-6 shadow-2xl backdrop-blur-md flex flex-col justify-between animate-slide-in">
-          <div className="space-y-6 flex-1 flex flex-col min-h-0">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-sky-400" />
-                <h3 className="font-bold text-white text-md">Contractor Logs</h3>
-              </div>
-              <div className="flex items-center gap-3">
-                {notifications.filter(n => !n.read).length > 0 && (
-                  <button 
-                    onClick={handleMarkAllNotificationsRead}
-                    className="text-[10px] text-sky-400 hover:underline font-bold"
-                  >
-                    Mark all read
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowNotificationsDrawer(false)}
-                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
-                >
-                  <X className="h-4.5 w-4.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-              {notifications.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-xs">
-                  Your inbox is completely empty.
-                </div>
-              ) : (
-                notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`rounded-xl border p-4 flex flex-col gap-2 transition-all relative ${
-                      n.read
-                        ? 'border-slate-805 bg-slate-950/20 text-slate-400'
-                        : 'border-sky-500/25 bg-sky-500/5 text-slate-200 shadow-md shadow-sky-500/2'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start gap-2">
-                      <h4 className="font-bold text-xs text-white">{n.title}</h4>
-                      {!n.read && (
-                        <button
-                          onClick={() => handleMarkNotificationRead(n.id)}
-                          className="text-[9px] font-bold text-sky-455 hover:underline shrink-0"
-                        >
-                          Mark read
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-xs leading-normal">{n.message}</p>
-                    <span className="text-[9px] text-slate-555 block font-mono">{n.date}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         
