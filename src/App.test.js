@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders ApexBuild branding on login page', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const brandingElement = screen.getByText(/ApexBuild/i);
+  expect(brandingElement).toBeInTheDocument();
 });
+

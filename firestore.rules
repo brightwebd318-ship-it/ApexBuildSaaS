@@ -67,7 +67,15 @@ service cloud.firestore {
         resource.data.contractorId == request.auth.uid || 
         resource.data.clientId == request.auth.uid
       );
-      allow write: if isContractor();
+      allow write: if isLoggedIn();
+    }
+
+    match /progress_photos/{photoId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isLoggedIn();
     }
 
     match /costs/{costId} {
@@ -84,6 +92,16 @@ service cloud.firestore {
         resource.data.clientId == request.auth.uid
       );
       allow write: if isLoggedIn();
+    }
+
+    match /labours/{labourId} {
+      allow read: if isLoggedIn();
+      allow write: if isContractor();
+    }
+
+    match /attendance_logs/{logId} {
+      allow read: if isLoggedIn();
+      allow write: if isContractor();
     }
   }
 }

@@ -141,6 +141,7 @@ export default function Login({ onNavigate }) {
             <button
               onClick={() => handleQuickLogin('contractor@gmail.com', 'contractor123')}
               className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 hover:bg-slate-900 transition-all hover:border-sky-500/40 text-center dark:border-slate-800 light:border-slate-200"
+              type="button"
             >
               <HardHat className="h-4.5 w-4.5 text-sky-400 animate-pulse-soft" />
               <span className="mt-1 text-[11px] font-bold text-white dark:text-white light:text-slate-800">Contractor</span>
@@ -151,6 +152,7 @@ export default function Login({ onNavigate }) {
             <button
               onClick={() => handleQuickLogin('arun@gmail.com', 'Arun@2026')}
               className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 hover:bg-slate-900 transition-all hover:border-emerald-500/40 text-center dark:border-slate-800 light:border-slate-200"
+              type="button"
             >
               <UserCheck className="h-4.5 w-4.5 text-emerald-400" />
               <span className="mt-1 text-[11px] font-bold text-white dark:text-white light:text-slate-800">Arun</span>
@@ -161,10 +163,29 @@ export default function Login({ onNavigate }) {
             <button
               onClick={() => handleQuickLogin('manu@gmail.com', 'Manu@2026')}
               className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 hover:bg-slate-900 transition-all hover:border-emerald-500/40 text-center dark:border-slate-800 light:border-slate-200"
+              type="button"
             >
               <UserCheck className="h-4.5 w-4.5 text-emerald-400" />
               <span className="mt-1 text-[11px] font-bold text-white dark:text-white light:text-slate-800">Manu</span>
               <span className="text-[9px] text-slate-500 mt-0.5">Manu Res.</span>
+            </button>
+          </div>
+
+          <div className="pt-2 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                Object.keys(localStorage).forEach(key => {
+                  if (key.startsWith('cms_')) {
+                    localStorage.removeItem(key);
+                  }
+                });
+                alert("Database local cache cleared. Default accounts have been re-seeded.");
+                window.location.reload();
+              }}
+              className="text-[10px] font-bold text-slate-500 hover:text-slate-350 hover:underline cursor-pointer"
+            >
+              Reset Local Database Cache (Re-seed Defaults)
             </button>
           </div>
         </div>

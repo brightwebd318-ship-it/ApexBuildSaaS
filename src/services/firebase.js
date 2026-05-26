@@ -314,6 +314,15 @@ export const firebaseService = {
     }
   },
 
+  async updateProjectBudget(projectId, newBudget) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      await updateDoc(doc(liveFirestore, 'projects', projectId), { budget: parseFloat(newBudget) || 0 });
+    } else {
+      mockDb.updateProjectBudget(projectId, newBudget);
+    }
+  },
+
   async getClientsForContractor(contractorId) {
     if (liveFirestore) {
       const { collection, query, where, getDocs } = require('firebase/firestore');
@@ -560,11 +569,63 @@ export const firebaseService = {
         size: docData.size || '2.0 MB',
         type: docData.type || 'Blueprint',
         uploadDate: new Date().toISOString().split('T')[0],
-        fileUrl: docData.fileUrl || ''
+        fileUrl: docData.fileUrl || '',
+        uploadedBy: docData.uploadedBy || 'contractor',
+        uploadedByName: docData.uploadedByName || '',
+        visibleTo: docData.visibleTo || 'both'
       });
       return docRef.id;
     } else {
       return mockDb.addDocument(projectId, docData);
+    }
+  },
+
+  async deleteDocument(docId) {
+    if (liveFirestore) {
+      const { doc, deleteDoc } = require('firebase/firestore');
+      await deleteDoc(doc(liveFirestore, 'documents', docId));
+    } else {
+      mockDb.deleteDocument(docId);
+    }
+  },
+
+  // Progress Photos (Timeline Photos)
+  async getProgressPhotos(projectId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'progress_photos'), where('projectId', '==', projectId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.timestamp.localeCompare(a.timestamp));
+    } else {
+      return mockDb.getProgressPhotos(projectId);
+    }
+  },
+
+  async addProgressPhoto(projectId, photoData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'progress_photos'), {
+        projectId,
+        uploadedBy: photoData.uploadedBy || 'contractor',
+        uploadedByName: photoData.uploadedByName || '',
+        photoUrl: photoData.photoUrl,
+        caption: photoData.caption || '',
+        date: photoData.date || new Date().toISOString().split('T')[0],
+        time: photoData.time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+        timestamp: photoData.timestamp || new Date().toISOString()
+      });
+      return docRef.id;
+    } else {
+      return mockDb.addProgressPhoto(projectId, photoData);
+    }
+  },
+
+  async deleteProgressPhoto(photoId) {
+    if (liveFirestore) {
+      const { doc, deleteDoc } = require('firebase/firestore');
+      await deleteDoc(doc(liveFirestore, 'progress_photos', photoId));
+    } else {
+      mockDb.deleteProgressPhoto(photoId);
     }
   },
 
@@ -659,6 +720,88 @@ export const firebaseService = {
         list[idx].read = true;
         localStorage.setItem('cms_notifications', JSON.stringify(list));
       }
+    }
+  },
+
+  async getLabours(contractorId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'labours'), where('contractorId', '==', contractorId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      return mockDb.getLabours(contractorId);
+    }
+  },
+
+  async addLabour(contractorId, labourData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'labours'), {
+        contractorId,
+        name: labourData.name,
+        phone: labourData.phone,
+        role: labourData.role || 'Helper',
+        status: labourData.status || 'Active',
+        address: labourData.address || '',
+        joiningDate: labourData.joiningDate || new Date().toISOString().split('T')[0],
+        emergencyContact: labourData.emergencyContact || '',
+        idProof: labourData.idProof || ''
+      });
+      return { id: docRef.id, contractorId, ...labourData };
+    } else {
+      return mockDb.addLabour(contractorId, labourData);
+    }
+  },
+
+  async updateLabour(labourId, updateData) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      await updateDoc(doc(liveFirestore, 'labours', labourId), updateData);
+      return { id: labourId, ...updateData };
+    } else {
+      return mockDb.updateLabour(labourId, updateData);
+    }
+  },
+
+  async getAttendanceLogs(contractorId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'attendance_logs'), where('contractorId', '==', contractorId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      return mockDb.getAttendanceLogs(contractorId);
+    }
+  },
+
+  async addAttendanceLog(contractorId, logData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'attendance_logs'), {
+        contractorId,
+        labourId: logData.labourId,
+        projectId: logData.projectId,
+        projectName: logData.projectName,
+        date: logData.date || new Date().toISOString().split('T')[0],
+        status: logData.status || 'Present',
+        remarks: logData.remarks || '',
+        timeEntry: logData.timeEntry || new Date().toTimeString().split(' ')[0].substring(0, 5)
+      });
+      return { id: docRef.id, contractorId, ...logData };
+    } else {
+      return mockDb.addAttendanceLog(contractorId, logData);
+    }
+  },
+
+  async getLabourAttendance(labourId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'attendance_logs'), where('labourId', '==', labourId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.date.localeCompare(a.date));
+    } else {
+      return mockDb.getLabourAttendance(labourId);
     }
   }
 };

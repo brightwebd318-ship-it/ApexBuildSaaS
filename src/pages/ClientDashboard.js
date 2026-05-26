@@ -3,10 +3,11 @@ import { firebaseService } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Unauthorized } from './Unauthorized';
 import { 
-  Calendar, Camera, DollarSign, FileText, Activity, 
+  Calendar, Camera, IndianRupee, FileText, Activity, 
   MapPin, CheckCircle, Image as ImageIcon, Download,
   User, Lock, Send, ChevronRight, ChevronDown, Folder, 
-  File, Plus, X, Maximize2, ExternalLink, ShieldCheck, Mail, Phone, MessageSquare
+  File, Plus, X, Maximize2, ExternalLink, ShieldCheck, Mail, Phone, MessageSquare,
+  Bell, Trash2, FileUp, Eye
 } from 'lucide-react';
 import { ResponsiveContainer, Cell, PieChart, Pie, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -18,14 +19,27 @@ export default function ClientDashboard() {
   const [timeline, setTimeline] = useState([]);
   const [costs, setCosts] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [progressPhotos, setProgressPhotos] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [activeTab, setActiveTab] = useState('progress');
   const [loading, setLoading] = useState(true);
   const [unauthorized, setUnauthorized] = useState(false);
 
+  // Notifications Drawer
+  const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
+
   // Photo gallery and lightbox states
   const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [newPhotoUrl, setNewPhotoUrl] = useState('');
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState(null);
+
+  // Document Upload States
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docFile, setDocFile] = useState(null);
+  const [docType, setDocType] = useState('2D Drawings');
+  const [uploadingDoc, setUploadingDoc] = useState(false);
 
   // Profile forms states
   const [newPassword, setNewPassword] = useState('');
@@ -42,55 +56,77 @@ export default function ClientDashboard() {
 
   // Document tree expand/collapse states
   const [expandedFolders, setExpandedFolders] = useState({
-    'Architectural Blueprints': true,
-    'Structural Engineering': true,
-    'Permits & Regulations': true,
-    'Contracts & Specifications': true
+    '2D Drawings': true,
+    '3D Designs': true,
+    'Contracts': true,
+    'Bills / Invoices': true,
+    'PDFs': true,
+    'Images': true,
+    'Other project files': true
   });
 
-  useEffect(() => {
-    const loadProjectData = async () => {
-      try {
-        setLoading(true);
-        const userId = currentUser.uid || currentUser.id;
-        const clientProjects = await firebaseService.getProjects(userId, 'client');
-        
-        if (clientProjects.length === 0) {
-          setProject(null);
-          setLoading(false);
-          return;
-        }
+  const convertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
+  };
 
-        const proj = clientProjects[0]; // assume one project for simplicity
-        
-        // Strict Project Isolation Check
-        if (proj.clientId !== userId) {
-          setUnauthorized(true);
-          setLoading(false);
-          return;
-        }
-
-        setProject(proj);
-
-        // Fetch related data in parallel
-        const [updatesData, timelineData, costsData, documentsData] = await Promise.all([
-          firebaseService.getDailyUpdates(proj.id),
-          firebaseService.getTimeline(proj.id),
-          firebaseService.getCosts(proj.id),
-          firebaseService.getDocuments(proj.id)
-        ]);
-
-        setUpdates(updatesData);
-        setTimeline(timelineData);
-        setCosts(costsData);
-        setDocuments(documentsData);
-      } catch (err) {
-        console.error("Error loading client project data: ", err);
-      } finally {
+  const loadProjectData = async () => {
+    try {
+      setLoading(true);
+      const userId = currentUser.uid || currentUser.id;
+      const clientProjects = await firebaseService.getProjects(userId, 'client');
+      
+      if (clientProjects.length === 0) {
+        setProject(null);
         setLoading(false);
+        return;
       }
-    };
 
+      const proj = clientProjects[0]; // assume one project for simplicity
+      
+      // Strict Project Isolation Check
+      if (proj.clientId !== userId) {
+        setUnauthorized(true);
+        setLoading(false);
+        return;
+      }
+
+      setProject(proj);
+
+      // Fetch related data in parallel
+      const [updatesData, timelineData, costsData, documentsData, notificationsData, photosData] = await Promise.all([
+        firebaseService.getDailyUpdates(proj.id),
+        firebaseService.getTimeline(proj.id),
+        firebaseService.getCosts(proj.id),
+        firebaseService.getDocuments(proj.id),
+        firebaseService.getNotifications(userId, 'client'),
+        firebaseService.getProgressPhotos(proj.id)
+      ]);
+
+      setUpdates(updatesData);
+      setTimeline(timelineData);
+      setCosts(costsData);
+      setDocuments(documentsData);
+      setNotifications(notificationsData);
+      setProgressPhotos(photosData);
+
+      // Auto open notification drawer immediately after login if there are unread notifications
+      const unreadCount = notificationsData.filter(n => !n.read).length;
+      if (unreadCount > 0) {
+        setShowNotificationsDrawer(true);
+      }
+    } catch (err) {
+      console.error("Error loading client project data: ", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     if (currentUser) {
       loadProjectData();
     }
@@ -100,7 +136,7 @@ export default function ClientDashboard() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
         <div className="text-center space-y-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-sky-500 border-t-transparent mx-auto" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent mx-auto" />
           <p className="text-sm text-slate-400">Loading project data...</p>
         </div>
       </div>
@@ -138,28 +174,146 @@ export default function ClientDashboard() {
     { name: 'Pending Invoices', Amount: totalPending }
   ];
 
-  const COLORS = ['#0ea5e9', '#6366f1', '#10b981', '#f59e0b', '#ec4899'];
+  const COLORS = ['#10b981', '#6366f1', '#0ea5e9', '#f59e0b', '#ec4899'];
 
-  const handleSimulatePhotoUpload = async (e) => {
+  const handlePhotoUpload = async (e) => {
     e.preventDefault();
-    if (!newPhotoUrl) return;
+    if (!photoFile) return;
 
+    setUploadingPhoto(true);
     try {
-      await firebaseService.addDailyUpdate(project.id, project.contractorId, {
+      const base64Url = await convertToBase64(photoFile);
+      const photoData = {
+        uploadedBy: 'client',
+        uploadedByName: currentUser.name,
+        photoUrl: base64Url,
+        caption: photoCaption || 'Progress image shared by client',
         date: new Date().toISOString().split('T')[0],
-        labourCount: 0,
-        workCompleted: 'Client Shared Progress Photo',
-        delays: 'None',
-        remarks: 'Simulated client progress photo upload.',
-        photos: [newPhotoUrl]
-      });
+        time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+        timestamp: new Date().toISOString()
+      };
 
-      const freshUpdates = await firebaseService.getDailyUpdates(project.id);
-      setUpdates(freshUpdates);
+      await firebaseService.addProgressPhoto(project.id, photoData);
+
+      // Notify Contractor
+      await firebaseService.addNotification(
+        project.id,
+        project.contractorId,
+        currentUser.uid || currentUser.id,
+        'New Progress Photo Uploaded',
+        `Client ${currentUser.name} uploaded a progress photo: "${photoData.caption}".`,
+        'contractor'
+      );
+
+      // reload
+      const freshPhotos = await firebaseService.getProgressPhotos(project.id);
+      setProgressPhotos(freshPhotos);
       setShowPhotoModal(false);
-      setNewPhotoUrl('');
+      setPhotoFile(null);
+      setPhotoCaption('');
     } catch (err) {
-      console.error("Failed to upload simulated photo:", err);
+      console.error("Failed to upload photo:", err);
+      alert("Failed to upload image. It may exceed size limitations.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleDocUpload = async (e) => {
+    e.preventDefault();
+    if (!docFile) return;
+
+    setUploadingDoc(true);
+    try {
+      const base64Url = await convertToBase64(docFile);
+      const sizeStr = (docFile.size / (1024 * 1024)).toFixed(2) + ' MB';
+      const docData = {
+        name: docFile.name,
+        size: sizeStr,
+        type: docType,
+        fileUrl: base64Url,
+        uploadedBy: 'client',
+        uploadedByName: currentUser.name,
+        visibleTo: 'both'
+      };
+
+      await firebaseService.addDocument(project.id, currentUser.uid || currentUser.id, docData);
+
+      // Notify Contractor
+      await firebaseService.addNotification(
+        project.id,
+        project.contractorId,
+        currentUser.uid || currentUser.id,
+        'New Document Uploaded',
+        `Client ${currentUser.name} uploaded document: "${docFile.name}" under category "${docType}".`,
+        'contractor'
+      );
+
+      // reload
+      const freshDocs = await firebaseService.getDocuments(project.id);
+      setDocuments(freshDocs);
+      setShowDocModal(false);
+      setDocFile(null);
+    } catch (err) {
+      console.error("Document upload failed:", err);
+      alert("Failed to upload document. File may be too large.");
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteDoc = async (docId, uploader) => {
+    if (uploader !== 'client') {
+      alert("You can only delete documents that you uploaded.");
+      return;
+    }
+    if (window.confirm("Are you sure you want to delete this document?")) {
+      try {
+        await firebaseService.deleteDocument(docId);
+        const freshDocs = await firebaseService.getDocuments(project.id);
+        setDocuments(freshDocs);
+      } catch (err) {
+        console.error("Error deleting document:", err);
+      }
+    }
+  };
+
+  const handleDeletePhoto = async (photoId, uploader) => {
+    if (uploader !== 'client') {
+      alert("You can only delete progress photos that you uploaded.");
+      return;
+    }
+    if (window.confirm("Are you sure you want to delete this photo log?")) {
+      try {
+        await firebaseService.deleteProgressPhoto(photoId);
+        const freshPhotos = await firebaseService.getProgressPhotos(project.id);
+        setProgressPhotos(freshPhotos);
+      } catch (err) {
+        console.error("Error deleting photo:", err);
+      }
+    }
+  };
+
+  const handleMarkNotificationRead = async (notifId) => {
+    try {
+      await firebaseService.markNotificationRead(notifId);
+      const userId = currentUser.uid || currentUser.id;
+      const freshNotifs = await firebaseService.getNotifications(userId, 'client');
+      setNotifications(freshNotifs);
+    } catch (err) {
+      console.error("Error reading notification:", err);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      const unread = notifications.filter(n => !n.read);
+      await Promise.all(unread.map(n => firebaseService.markNotificationRead(n.id)));
+      const userId = currentUser.uid || currentUser.id;
+      const freshNotifs = await firebaseService.getNotifications(userId, 'client');
+      setNotifications(freshNotifs);
+    } catch (err) {
+      console.error("Error marking all read:", err);
     }
   };
 
@@ -223,41 +377,78 @@ export default function ClientDashboard() {
     }));
   };
 
-  // Group documents by mock folder structures
+  // Group documents by the 7 requested folders
   const documentTree = {
-    'Architectural Blueprints': documents.filter(d => d.type === 'Drawing' || d.name.toLowerCase().includes('plan') || d.name.toLowerCase().includes('architectural')),
-    'Structural Engineering': documents.filter(d => d.type === 'Specs' || d.name.toLowerCase().includes('structural') || d.name.toLowerCase().includes('engineering')),
-    'Permits & Regulations': documents.filter(d => d.type === 'Permit' || d.name.toLowerCase().includes('permit') || d.name.toLowerCase().includes('zoning')),
-    'Contracts & Specifications': documents.filter(d => !['Drawing', 'Specs', 'Permit'].includes(d.type) && !d.name.toLowerCase().includes('plan') && !d.name.toLowerCase().includes('structural') && !d.name.toLowerCase().includes('permit'))
+    '2D Drawings': documents.filter(d => d.type === '2D Drawings'),
+    '3D Designs': documents.filter(d => d.type === '3D Designs'),
+    'Contracts': documents.filter(d => d.type === 'Contracts'),
+    'Bills / Invoices': documents.filter(d => d.type === 'Bills / Invoices'),
+    'PDFs': documents.filter(d => d.type === 'PDFs'),
+    'Images': documents.filter(d => d.type === 'Images'),
+    'Other project files': documents.filter(d => 
+      d.type === 'Other project files' || 
+      !['2D Drawings', '3D Designs', 'Contracts', 'Bills / Invoices', 'PDFs', 'Images', 'Other project files'].includes(d.type)
+    )
   };
 
-  // Safe fallback if files are empty
-  const allPhotos = updates.flatMap(u => (u.photos || []).map(p => ({ url: p, date: u.date })));
+  const triggerDownload = (fileUrl, fileName) => {
+    if (!fileUrl) {
+      alert("No file data attached with this document.");
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = fileUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 dark:bg-slate-950 light:bg-slate-50 text-slate-100 dark:text-slate-100 light:text-slate-800 pb-16 transition-colors duration-300">
+    <div className="min-h-screen bg-slate-950 dark:bg-slate-950 text-slate-100 pb-16 transition-colors duration-300 relative">
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-slate-800 dark:border-slate-800 light:border-slate-200 bg-slate-950/80 dark:bg-slate-950/80 light:bg-white/80 backdrop-blur-md">
+      <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <CheckCircle className="h-5 w-5" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-450 border border-emerald-500/20">
+                <CheckCircle className="h-5 w-5 animate-pulse-soft" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-white dark:text-white light:text-slate-900 leading-none">ApexBuild</h1>
-                <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-400">Client Workspace</span>
+                <h1 className="text-lg font-bold text-white leading-none">ApexBuild</h1>
+                <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-450">Client Portal</span>
               </div>
             </div>
             
             <div className="flex items-center gap-4">
               <div className="hidden sm:block text-right">
-                <p className="text-sm font-semibold text-white dark:text-white light:text-slate-800">{currentUser.name}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500">{currentUser.email}</p>
+                <p className="text-sm font-semibold text-white">{currentUser.name}</p>
+                <p className="text-xs text-slate-400">{currentUser.email}</p>
               </div>
+
+              {/* Sleek Notification Bell */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotificationsDrawer(!showNotificationsDrawer)}
+                  className={`p-2 rounded-xl border transition-all relative ${
+                    showNotificationsDrawer 
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' 
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-700'
+                  }`}
+                  title="Notifications"
+                >
+                  <Bell className="h-4.5 w-4.5" />
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-extrabold text-white animate-pulse">
+                      {notifications.filter(n => !n.read).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
               <button
                 onClick={logout}
-                className="rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 light:bg-slate-100 light:border-slate-200 light:text-slate-700 light:hover:bg-slate-200 transition-all shadow-sm"
+                className="rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white transition-all shadow-sm"
               >
                 Sign Out
               </button>
@@ -266,23 +457,86 @@ export default function ClientDashboard() {
         </div>
       </header>
 
+      {/* Notifications Drawer Component */}
+      {showNotificationsDrawer && (
+        <div className="fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-slate-900/95 border-l border-slate-800 p-6 shadow-2xl backdrop-blur-md flex flex-col justify-between animate-slide-in">
+          <div className="space-y-6 flex-1 flex flex-col min-h-0">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-emerald-400" />
+                <h3 className="font-bold text-white text-md">Project Alerts</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <button 
+                    onClick={handleMarkAllRead}
+                    className="text-[10px] text-emerald-400 hover:underline font-bold"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowNotificationsDrawer(false)}
+                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+              {notifications.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 text-xs">
+                  Your inbox is completely clear!
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`rounded-xl border p-4 flex flex-col gap-2 transition-all relative ${
+                      n.read
+                        ? 'border-slate-800/80 bg-slate-950/20 text-slate-400'
+                        : 'border-emerald-500/25 bg-emerald-500/5 text-slate-200 shadow-md shadow-emerald-500/2'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <h4 className="font-bold text-xs text-white">{n.title}</h4>
+                      {!n.read && (
+                        <button
+                          onClick={() => handleMarkNotificationRead(n.id)}
+                          className="text-[9px] font-bold text-emerald-450 hover:underline shrink-0"
+                        >
+                          Mark read
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs leading-normal">{n.message}</p>
+                    <span className="text-[9px] text-slate-550 block font-mono">{n.date}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         
         {/* Project Hero Section */}
-        <section className="relative overflow-hidden rounded-3xl border border-slate-800 dark:border-slate-800 light:border-slate-200 bg-gradient-to-br from-slate-900 to-slate-950 dark:from-slate-900 dark:to-slate-950 light:from-white light:to-slate-50 p-6 sm:p-8 shadow-xl">
-          <div className="absolute top-0 right-0 -z-10 h-72 w-72 rounded-full bg-sky-500/5 blur-[50px]" />
+        <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-6 sm:p-8 shadow-xl">
+          <div className="absolute top-0 right-0 -z-10 h-72 w-72 rounded-full bg-emerald-500/5 blur-[50px]" />
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             
             <div className="space-y-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 px-3 py-1 text-xs font-bold text-sky-400 border border-sky-500/20">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">
                 <MapPin className="h-3.5 w-3.5" /> Site Location Active
               </span>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white dark:text-white light:text-slate-900 tracking-tight leading-tight">{project.projectName}</h2>
-              <p className="text-sm text-slate-400 dark:text-slate-400 light:text-slate-600 max-w-xl">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">{project.projectName}</h2>
+              <p className="text-sm text-slate-400 max-w-xl">
                 Location: {project.siteLocation}
               </p>
-              <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-500 light:text-slate-600 pt-1">
+              <div className="flex flex-wrap gap-4 text-xs text-slate-500 pt-1">
                 <span>Start Date: {project.startDate}</span>
                 <span>•</span>
                 <span>Est. Completion: {project.estimatedFinish || project.deadline}</span>
@@ -292,8 +546,8 @@ export default function ClientDashboard() {
             </div>
 
             {/* Progress Gauge */}
-            <div className="flex items-center gap-5 bg-slate-950/40 border border-slate-900 rounded-2xl p-5 md:w-80 shrink-0 dark:bg-slate-950/40 dark:border-slate-900 light:bg-slate-100 light:border-slate-200">
-              <div className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-slate-800 dark:border-slate-800 light:border-slate-300">
+            <div className="flex items-center gap-5 bg-slate-950/40 border border-slate-900 rounded-2xl p-5 md:w-80 shrink-0">
+              <div className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-slate-800">
                 {/* Visual completion ring */}
                 <svg className="absolute -rotate-90 h-20 w-20">
                   <circle
@@ -303,7 +557,7 @@ export default function ClientDashboard() {
                     stroke="currentColor"
                     strokeWidth="4"
                     fill="transparent"
-                    className="text-slate-800 dark:text-slate-800 light:text-slate-300"
+                    className="text-slate-800"
                   />
                   <circle
                     cx="40"
@@ -314,14 +568,14 @@ export default function ClientDashboard() {
                     fill="transparent"
                     strokeDasharray={2 * Math.PI * 34}
                     strokeDashoffset={2 * Math.PI * 34 * (1 - projProgressAvg / 100)}
-                    className="text-sky-500 transition-all duration-1000"
+                    className="text-emerald-500 transition-all duration-1000"
                   />
                 </svg>
-                <span className="text-sm font-extrabold text-white dark:text-white light:text-slate-900 font-mono">{projProgressAvg}%</span>
+                <span className="text-sm font-extrabold text-white font-mono">{projProgressAvg}%</span>
               </div>
               <div>
-                <h4 className="font-bold text-white dark:text-white light:text-slate-800 text-sm">Overall Progress</h4>
-                <p className="text-[11px] text-slate-400 dark:text-slate-400 light:text-slate-600 mt-1 leading-normal">Checklist completion score across current project scope.</p>
+                <h4 className="font-bold text-white text-sm">Overall Progress</h4>
+                <p className="text-[11px] text-slate-400 mt-1 leading-normal">Checklist completion score across current project scope.</p>
               </div>
             </div>
 
@@ -330,14 +584,14 @@ export default function ClientDashboard() {
 
         {/* Tab Navigation Menu */}
         <section className="space-y-6">
-          <div className="flex border-b border-slate-850 dark:border-slate-850 light:border-slate-200 overflow-x-auto no-scrollbar">
+          <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
             {[
-              { id: 'progress', label: 'Progress', icon: Activity },
-              { id: 'photos', label: 'Photos', icon: Camera },
-              { id: 'timeline', label: 'Timeline', icon: Calendar },
-              { id: 'costs', label: 'Costs', icon: DollarSign },
-              { id: 'documents', label: 'Documents', icon: FileText },
-              { id: 'profile', label: 'Profile', icon: User }
+              { id: 'progress', label: 'Daily Logs', icon: Activity },
+              { id: 'photos', label: 'Timeline Photos', icon: Camera },
+              { id: 'timeline', label: 'Timeline Milestones', icon: Calendar },
+              { id: 'costs', label: 'Costs & Ledger', icon: IndianRupee },
+              { id: 'documents', label: 'Documents Vault', icon: FileText },
+              { id: 'profile', label: 'Inquiries & Profile', icon: User }
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -347,8 +601,8 @@ export default function ClientDashboard() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
                     isActive 
-                      ? 'border-emerald-500 text-emerald-400 dark:text-emerald-450 light:text-emerald-600 font-bold bg-emerald-500/5' 
-                      : 'border-transparent text-slate-400 dark:text-slate-400 light:text-slate-500 hover:text-slate-200 dark:hover:text-white light:hover:text-slate-800 hover:border-slate-800'
+                      ? 'border-emerald-500 text-emerald-450 font-bold bg-emerald-500/5' 
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -364,30 +618,30 @@ export default function ClientDashboard() {
             {/* 1. Progress Tab */}
             {activeTab === 'progress' && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-900 dark:border-slate-900 light:border-slate-200 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-3">
                   <div>
-                    <h3 className="text-md font-bold text-white dark:text-white light:text-slate-900">Daily Site Updates</h3>
-                    <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-0.5">Progress summaries and site details submitted by your contractor</p>
+                    <h3 className="text-md font-bold text-white">Daily Site Updates</h3>
+                    <p className="text-xs text-slate-450 mt-0.5">Progress summaries and site details submitted by your contractor</p>
                   </div>
                 </div>
 
                 {updates.length === 0 ? (
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-8 text-center text-slate-500">
+                  <div className="glass-panel rounded-xl p-8 text-center text-slate-500">
                     No daily updates have been posted yet.
                   </div>
                 ) : (
                   <div className="space-y-6">
                     {updates.map((upd) => (
-                      <div key={upd.id} className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-900 dark:border-slate-900 light:border-slate-100 pb-3.5">
+                      <div key={upd.id} className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-900 pb-3.5">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-white dark:text-white light:text-slate-800 text-md">Daily Log</span>
-                            <span className="text-[11px] text-slate-500">•</span>
-                            <span className="text-xs font-semibold text-slate-400 dark:text-slate-400 light:text-slate-650">{upd.date}</span>
+                            <span className="font-bold text-white text-md">Daily Log</span>
+                            <span className="text-slate-555">•</span>
+                            <span className="text-xs font-semibold text-slate-400">{upd.date}</span>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded">
-                              Labor Count: {upd.labour_count}
+                            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded">
+                              Labor Count: {upd.labour_count || upd.labourCount || 0}
                             </span>
                             {upd.materials && (
                               <span className="text-xs font-semibold text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded hidden sm:inline-block max-w-[200px] truncate" title={upd.materials}>
@@ -397,17 +651,17 @@ export default function ClientDashboard() {
                           </div>
                         </div>
 
-                        <div className="text-sm leading-relaxed text-slate-350 dark:text-slate-350 light:text-slate-700">
+                        <div className="text-sm leading-relaxed text-slate-300">
                           <p className="whitespace-pre-line">{upd.notes}</p>
                         </div>
 
                         {upd.photos && upd.photos.length > 0 && (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-900 dark:border-slate-900 light:border-slate-100">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-900">
                             {upd.photos.map((ph, index) => (
                               <div 
                                 key={index} 
-                                className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 dark:border-slate-800 light:border-slate-200 hover:border-slate-700 group cursor-pointer"
-                                onClick={() => setActiveLightboxPhoto({ url: ph, date: upd.date })}
+                                className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 group cursor-pointer"
+                                onClick={() => setActiveLightboxPhoto({ url: ph, date: upd.date, caption: 'Daily site update attachment', uploadedByName: 'Contractor' })}
                               >
                                 <img src={ph} alt="Progress detail" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                                 <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -424,60 +678,80 @@ export default function ClientDashboard() {
               </div>
             )}
 
-            {/* 2. Photos Tab */}
+            {/* 2. Photos Tab - TIMELINE PHOTOS FEATURE */}
             {activeTab === 'photos' && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-900 dark:border-slate-900 light:border-slate-200 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-3">
                   <div>
-                    <h3 className="text-md font-bold text-white dark:text-white light:text-slate-900">Project Photo Logs</h3>
-                    <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-0.5">Interactive index of progress imagery and document uploads</p>
+                    <h3 className="text-md font-bold text-white">Project Photo Timeline</h3>
+                    <p className="text-xs text-slate-450 mt-0.5">Chronological feed of progress photos and work update logs from Client and Contractor</p>
                   </div>
                   
                   <button 
                     onClick={() => setShowPhotoModal(true)}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-800 dark:border-slate-800 light:border-slate-200 bg-slate-900 dark:bg-slate-900 light:bg-white hover:border-slate-750 px-3.5 py-1.5 text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 hover:text-white dark:hover:text-white light:hover:text-slate-950 transition-all shadow-sm"
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:border-emerald-500 hover:bg-emerald-500/10 px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-emerald-450 transition-all shadow-sm"
                   >
-                    <ImageIcon className="h-4 w-4 text-emerald-400" /> Share Progress Photo
+                    <Camera className="h-4 w-4 text-emerald-400" /> Share Progress Photo
                   </button>
                 </div>
 
-                {allPhotos.length === 0 ? (
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-8 text-center text-slate-500">
-                    No site photos are logged for this project.
+                {progressPhotos.length === 0 ? (
+                  <div className="glass-panel rounded-xl p-12 text-center text-slate-500 flex flex-col items-center justify-center space-y-3">
+                    <Camera className="h-10 w-10 text-slate-655" />
+                    <p>No site photos have been logged in the timeline yet.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {allPhotos.map((ph, idx) => (
-                      <div key={idx} className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl overflow-hidden border border-slate-800 group shadow-sm flex flex-col justify-between">
-                        <div 
-                          className="aspect-video relative overflow-hidden cursor-pointer"
-                          onClick={() => setActiveLightboxPhoto(ph)}
-                        >
-                          <img src={ph.url} alt={`Progress photo ${idx}`} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent opacity-0 group-hover:opacity-100 transition-all flex items-end p-3">
-                            <span className="text-[10px] font-semibold text-white">Log: {ph.date}</span>
+                  <div className="relative border-l border-slate-800 pl-6 ml-3 space-y-8 py-2">
+                    {progressPhotos.map((ph) => (
+                      <div key={ph.id} className="relative">
+                        {/* Timeline dot indicator */}
+                        <span className={`absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
+                          ph.uploadedBy === 'client' 
+                            ? 'bg-emerald-500 border-emerald-500' 
+                            : 'bg-indigo-500 border-indigo-500'
+                        }`} />
+                        
+                        <div className="glass-panel rounded-xl p-5 shadow-sm space-y-4 max-w-2xl">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Uploaded By</span>
+                              <span className="font-semibold text-white text-xs">{ph.uploadedByName} ({ph.uploadedBy})</span>
+                            </div>
+                            <div className="text-right text-[10px] text-slate-400">
+                              <span className="block font-mono">Date: {ph.date}</span>
+                              <span className="block font-mono">Time: {ph.time}</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="p-3 flex items-center justify-between border-t border-slate-900 dark:border-slate-900 light:border-slate-100 bg-slate-950/20">
-                          <span className="text-[10px] text-slate-400 dark:text-slate-400 light:text-slate-650 font-medium">Site Record #{allPhotos.length - idx}</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => window.open(ph.url, '_blank')}
-                              className="p-1.5 text-slate-450 hover:text-white hover:bg-slate-850 light:hover:bg-slate-100 rounded transition-colors"
-                              title="Open Full Image"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </button>
-                            <a
-                              href={ph.url}
-                              download={`site_photo_${ph.date}.jpg`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1.5 text-slate-450 hover:text-white hover:bg-slate-850 light:hover:bg-slate-100 rounded transition-colors"
-                              title="Download Photo"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                            </a>
+
+                          <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group cursor-pointer"
+                               onClick={() => setActiveLightboxPhoto({ url: ph.photoUrl, date: `${ph.date} ${ph.time}`, caption: ph.caption, uploadedByName: ph.uploadedByName })}>
+                            <img src={ph.photoUrl} alt={ph.caption} className="h-full w-full object-contain" />
+                            <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Maximize2 className="h-6 w-6 text-white drop-shadow" />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-xs text-slate-300 italic">"{ph.caption}"</p>
+                            
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => triggerDownload(ph.photoUrl, `progress_${ph.date}_${ph.time}.jpg`)}
+                                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                                title="Download Photo"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                              {ph.uploadedBy === 'client' && (
+                                <button
+                                  onClick={() => handleDeletePhoto(ph.id, ph.uploadedBy)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-455 hover:bg-slate-800 rounded transition-colors"
+                                  title="Delete Photo Log"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -490,48 +764,48 @@ export default function ClientDashboard() {
             {/* 3. Timeline Tab */}
             {activeTab === 'timeline' && (
               <div className="space-y-6">
-                <div className="border-b border-slate-900 dark:border-slate-900 light:border-slate-200 pb-3">
-                  <h3 className="text-md font-bold text-white dark:text-white light:text-slate-900">Project Milestone Timeline</h3>
-                  <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-0.5">Real-time checklist track of deadlines and task stages</p>
+                <div className="border-b border-slate-900 pb-3">
+                  <h3 className="text-md font-bold text-white">Project Milestone Timeline</h3>
+                  <p className="text-xs text-slate-450 mt-0.5">Real-time checklist track of deadlines and task stages</p>
                 </div>
 
                 {timeline.length === 0 ? (
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-8 text-center text-slate-550">
+                  <div className="glass-panel rounded-xl p-8 text-center text-slate-500">
                     Timeline schedule is not initialized.
                   </div>
                 ) : (
-                  <div className="relative border-l border-slate-800 dark:border-slate-800 light:border-slate-300 pl-6 ml-3 space-y-8 py-2">
+                  <div className="relative border-l border-slate-800 pl-6 ml-3 space-y-8 py-2">
                     {timeline.map((item) => (
                       <div key={item.id} className="relative">
                         {/* Milestone dot indicator */}
                         <span className={`absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
                           item.progress === 100 
-                            ? 'bg-emerald-500 border-emerald-500 text-white' 
-                            : 'bg-slate-950 border-slate-700 dark:bg-slate-950 dark:border-slate-700 light:bg-white light:border-slate-350'
+                            ? 'bg-emerald-500 border-emerald-500' 
+                            : 'bg-slate-955 border-slate-700'
                         }`} />
                         
-                        <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-5 shadow-sm space-y-3.5">
+                        <div className="glass-panel rounded-xl p-5 shadow-sm space-y-3.5">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                             <div>
-                              <h4 className="font-bold text-white dark:text-white light:text-slate-900 text-sm sm:text-md">{item.task}</h4>
-                              <p className="text-[11px] text-slate-400 dark:text-slate-400 light:text-slate-500 mt-1">Deadline Plan: {item.deadline}</p>
+                              <h4 className="font-bold text-white text-sm sm:text-md">{item.task}</h4>
+                              <p className="text-[11px] text-slate-400 mt-1">Deadline Plan: {item.deadline}</p>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
                                 item.priority === 'High' 
-                                  ? 'bg-rose-500/10 text-rose-400' 
+                                  ? 'bg-rose-500/10 text-rose-455' 
                                   : item.priority === 'Medium' 
-                                  ? 'bg-amber-500/10 text-amber-400' 
+                                  ? 'bg-amber-500/10 text-amber-450' 
                                   : 'bg-sky-500/10 text-sky-400'
                               }`}>
                                 {item.priority} Priority
                               </span>
                               <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
                                 item.progress === 100 
-                                  ? 'bg-emerald-500/10 text-emerald-400' 
+                                  ? 'bg-emerald-500/10 text-emerald-450' 
                                   : item.progress > 0 
                                   ? 'bg-sky-500/10 text-sky-400' 
-                                  : 'bg-slate-800 text-slate-400 dark:bg-slate-800 dark:text-slate-400 light:bg-slate-200 light:text-slate-650'
+                                  : 'bg-slate-800 text-slate-400'
                               }`}>
                                 {item.status}
                               </span>
@@ -540,11 +814,11 @@ export default function ClientDashboard() {
 
                           {/* Progress bar */}
                           <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-500 light:text-slate-650">
+                            <div className="flex items-center justify-between text-[10px] text-slate-500">
                               <span>Checklist Progress</span>
-                              <span className="font-semibold text-slate-300 dark:text-slate-300 light:text-slate-800">{item.progress}%</span>
+                              <span className="font-semibold text-slate-300">{item.progress}%</span>
                             </div>
-                            <div className="h-1.5 w-full rounded-full bg-slate-900 dark:bg-slate-900 light:bg-slate-200 overflow-hidden">
+                            <div className="h-1.5 w-full rounded-full bg-slate-900 overflow-hidden">
                               <div 
                                 className={`h-full rounded-full ${item.progress === 100 ? 'bg-emerald-500' : 'bg-sky-500'}`} 
                                 style={{ width: `${item.progress}%` }}
@@ -559,47 +833,47 @@ export default function ClientDashboard() {
               </div>
             )}
 
-            {/* 4. Costs Tab */}
+            {/* 4. Costs Tab - INDIAN RUPEE FORMATTING */}
             {activeTab === 'costs' && (
               <div className="space-y-6">
-                <div className="border-b border-slate-900 dark:border-slate-900 light:border-slate-200 pb-3">
-                  <h3 className="text-md font-bold text-white dark:text-white light:text-slate-900">Financial Sheets & Ledger</h3>
-                  <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-0.5">Category breakdowns, invoices, and budget allocation summaries</p>
+                <div className="border-b border-slate-900 pb-3">
+                  <h3 className="text-md font-bold text-white">Financial Sheets & Ledger (INR)</h3>
+                  <p className="text-xs text-slate-455 mt-0.5">Category breakdowns, invoices, and budget allocation summaries in Indian Rupees (₹)</p>
                 </div>
 
                 {costs.length === 0 ? (
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-8 text-center text-slate-550">
+                  <div className="glass-panel rounded-xl p-8 text-center text-slate-500">
                     No budget ledger entries found.
                   </div>
                 ) : (
                   <div className="space-y-6">
                     {/* Premium Cost Cards Row */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-4.5 space-y-1">
-                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-450 light:text-slate-550 uppercase tracking-wide">Contract Value</span>
-                        <div className="text-lg sm:text-2xl font-extrabold text-white dark:text-white light:text-slate-950 font-mono">
-                          ${totalBudget.toLocaleString()}
+                      <div className="glass-panel rounded-2xl p-4.5 space-y-1">
+                        <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wide">Total Estimate</span>
+                        <div className="text-lg sm:text-2xl font-extrabold text-white font-mono">
+                          ₹{totalBudget.toLocaleString('en-IN')}
                         </div>
                       </div>
                       
-                      <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-4.5 space-y-1 border-l-2 border-l-emerald-500">
-                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-450 light:text-slate-550 uppercase tracking-wide">Spent to Date</span>
-                        <div className="text-lg sm:text-2xl font-extrabold text-emerald-400 dark:text-emerald-400 light:text-emerald-600 font-mono">
-                          ${totalPaid.toLocaleString()}
+                      <div className="glass-panel rounded-2xl p-4.5 space-y-1 border-l-2 border-l-emerald-500">
+                        <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wide">Spent to Date</span>
+                        <div className="text-lg sm:text-2xl font-extrabold text-emerald-400 font-mono">
+                          ₹{totalPaid.toLocaleString('en-IN')}
                         </div>
                       </div>
 
-                      <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-4.5 space-y-1 border-l-2 border-l-amber-500">
-                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-450 light:text-slate-550 uppercase tracking-wide">Pending Invoices</span>
-                        <div className="text-lg sm:text-2xl font-extrabold text-amber-400 dark:text-amber-400 light:text-amber-600 font-mono">
-                          ${totalPending.toLocaleString()}
+                      <div className="glass-panel rounded-2xl p-4.5 space-y-1 border-l-2 border-l-amber-500">
+                        <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wide">Pending Invoices</span>
+                        <div className="text-lg sm:text-2xl font-extrabold text-amber-400 font-mono">
+                          ₹{totalPending.toLocaleString('en-IN')}
                         </div>
                       </div>
 
-                      <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-4.5 space-y-1 border-l-2 border-l-sky-500">
-                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-450 light:text-slate-550 uppercase tracking-wide">Remaining Budget</span>
-                        <div className="text-lg sm:text-2xl font-extrabold text-sky-400 dark:text-sky-400 light:text-sky-650 font-mono">
-                          ${remainingBudget.toLocaleString()}
+                      <div className="glass-panel rounded-2xl p-4.5 space-y-1 border-l-2 border-l-sky-500">
+                        <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wide">Remaining Estimate</span>
+                        <div className="text-lg sm:text-2xl font-extrabold text-sky-400 font-mono">
+                          ₹{remainingBudget.toLocaleString('en-IN')}
                         </div>
                       </div>
                     </div>
@@ -609,15 +883,15 @@ export default function ClientDashboard() {
                       {/* Left: Charts Grid */}
                       <div className="lg:col-span-7 space-y-6">
                         {/* Bar comparison Chart */}
-                        <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-5 flex flex-col">
-                          <h4 className="text-xs font-bold text-slate-400 dark:text-slate-400 light:text-slate-500 uppercase tracking-wider mb-4">Budget Overview</h4>
+                        <div className="glass-panel rounded-2xl p-5 flex flex-col">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Budget Overview (INR)</h4>
                           <div className="h-56 w-full text-slate-900 font-mono text-xs">
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart data={comparisonData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis dataKey="name" stroke="#64748b" />
                                 <YAxis stroke="#64748b" />
-                                <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, 'Amount']} />
+                                <Tooltip formatter={(value) => [`₹${value.toLocaleString('en-IN')}`, 'Amount']} />
                                 <Bar dataKey="Amount" fill="#0ea5e9" radius={[4, 4, 0, 0]}>
                                   <Cell fill="#6366f1" />
                                   <Cell fill="#10b981" />
@@ -629,8 +903,8 @@ export default function ClientDashboard() {
                         </div>
 
                         {/* Pie Chart */}
-                        <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-5 flex flex-col items-center">
-                          <h4 className="text-xs font-bold text-slate-400 dark:text-slate-400 light:text-slate-500 uppercase tracking-wider mb-2">Category Wise Distribution</h4>
+                        <div className="glass-panel rounded-2xl p-5 flex flex-col items-center">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Category Wise Distribution</h4>
                           
                           <div className="h-48 w-full relative">
                             <ResponsiveContainer width="100%" height="100%">
@@ -648,7 +922,7 @@ export default function ClientDashboard() {
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                   ))}
                                 </Pie>
-                                <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, 'Amount']} />
+                                <Tooltip formatter={(value) => [`₹${value.toLocaleString('en-IN')}`, 'Amount']} />
                               </PieChart>
                             </ResponsiveContainer>
                           </div>
@@ -656,9 +930,9 @@ export default function ClientDashboard() {
                           {/* Legend list */}
                           <div className="mt-2 flex flex-wrap justify-center gap-3.5">
                             {chartData.map((item, idx) => (
-                              <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-350 dark:text-slate-350 light:text-slate-700">
+                              <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-300">
                                 <span className="h-3 w-3 rounded" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                                <span>{item.name}: <strong className="text-white dark:text-white light:text-slate-900 font-mono">${item.value.toLocaleString()}</strong></span>
+                                <span>{item.name}: <strong className="text-white font-mono">₹{item.value.toLocaleString('en-IN')}</strong></span>
                               </div>
                             ))}
                           </div>
@@ -667,31 +941,31 @@ export default function ClientDashboard() {
 
                       {/* Right: Cost breakdown table */}
                       <div className="lg:col-span-5">
-                        <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-5 space-y-4 h-full">
-                          <h4 className="text-xs font-bold text-slate-400 dark:text-slate-400 light:text-slate-500 uppercase tracking-wider">Itemized Cost Log</h4>
+                        <div className="glass-panel rounded-2xl p-5 space-y-4 h-full">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Itemized Cost Log</h4>
                           
-                          <div className="overflow-auto max-h-[480px] rounded-xl border border-slate-800 dark:border-slate-800 light:border-slate-200">
+                          <div className="overflow-auto max-h-[480px] rounded-xl border border-slate-800">
                             <table className="w-full text-left text-xs border-collapse">
                               <thead>
-                                <tr className="bg-slate-950 dark:bg-slate-950 light:bg-slate-100 border-b border-slate-800 dark:border-slate-800 light:border-slate-200 text-slate-450 dark:text-slate-450 light:text-slate-550 font-semibold uppercase tracking-wider">
+                                <tr className="bg-slate-950 border-b border-slate-800 text-slate-450 font-semibold uppercase tracking-wider">
                                   <th className="py-3 px-4">Expense Details</th>
                                   <th className="py-3 px-4">Category</th>
                                   <th className="py-3 px-4">Amount</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-850 dark:divide-slate-850 light:divide-slate-200 bg-slate-950/20 dark:bg-slate-950/20 light:bg-white">
+                              <tbody className="divide-y divide-slate-850 bg-slate-950/20">
                                 {costs.map((c) => (
-                                  <tr key={c.id} className="hover:bg-slate-900/10 dark:hover:bg-slate-900/10 light:hover:bg-slate-50">
+                                  <tr key={c.id} className="hover:bg-slate-900/10">
                                     <td className="py-3 px-4">
-                                      <div className="font-bold text-white dark:text-white light:text-slate-850">{c.item_name}</div>
+                                      <div className="font-bold text-white">{c.item_name || c.item}</div>
                                       <span className={`inline-block text-[9px] font-bold mt-1 ${
-                                        c.status === 'Paid' ? 'text-emerald-400' : 'text-amber-400'
+                                        c.status === 'Paid' ? 'text-emerald-450' : 'text-amber-450'
                                       }`}>
                                         {c.status === 'Paid' ? '✓ Paid Invoice' : '⧗ Invoice Pending'}
                                       </span>
                                     </td>
-                                    <td className="py-3 px-4 text-slate-400 dark:text-slate-400 light:text-slate-650">{c.category}</td>
-                                    <td className="py-3 px-4 font-bold text-white dark:text-white light:text-slate-950 font-mono">${c.amount.toLocaleString()}</td>
+                                    <td className="py-3 px-4 text-slate-450">{c.category}</td>
+                                    <td className="py-3 px-4 font-bold text-white font-mono">₹{c.amount.toLocaleString('en-IN')}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -706,28 +980,38 @@ export default function ClientDashboard() {
               </div>
             )}
 
-            {/* 5. Documents Tab */}
+            {/* 5. Documents Tab - FULL MANAGEMENT */}
             {activeTab === 'documents' && (
               <div className="space-y-6">
-                <div className="border-b border-slate-900 dark:border-slate-900 light:border-slate-200 pb-3">
-                  <h3 className="text-md font-bold text-white dark:text-white light:text-slate-900">Blueprint & Specification Vault</h3>
-                  <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-0.5">Access contracts, engineering details, and council permits</p>
+                <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                  <div>
+                    <h3 className="text-md font-bold text-white">Blueprint & Document Vault</h3>
+                    <p className="text-xs text-slate-450 mt-0.5">Secure folders containing project drawings, permits, designs, and contracts</p>
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowDocModal(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:border-emerald-500 hover:bg-emerald-500/10 px-3.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-emerald-450 transition-all shadow-sm"
+                  >
+                    <FileUp className="h-4 w-4 text-emerald-400" /> Upload Document
+                  </button>
                 </div>
 
                 {documents.length === 0 ? (
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-xl p-8 text-center text-slate-500">
-                    No files are hosted on this portal.
+                  <div className="glass-panel rounded-xl p-12 text-center text-slate-550 flex flex-col items-center justify-center space-y-3">
+                    <FileText className="h-10 w-10 text-slate-655" />
+                    <p>No documents are hosted on this project vault.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
                     {Object.entries(documentTree).map(([folderName, files]) => {
                       const isExpanded = expandedFolders[folderName];
                       return (
-                        <div key={folderName} className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl overflow-hidden border border-slate-800 shadow-sm">
+                        <div key={folderName} className="glass-panel rounded-2xl overflow-hidden border border-slate-800 shadow-sm">
                           {/* Folder Node */}
                           <button
                             onClick={() => toggleFolder(folderName)}
-                            className="w-full flex items-center justify-between p-4 bg-slate-900/30 dark:bg-slate-900/30 light:bg-slate-50 border-b border-slate-850 dark:border-slate-850 light:border-slate-100 hover:bg-slate-900/60 transition-colors"
+                            className="w-full flex items-center justify-between p-4 bg-slate-900/30 border-b border-slate-850 hover:bg-slate-900/60 transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               {isExpanded ? (
@@ -736,8 +1020,8 @@ export default function ClientDashboard() {
                                 <ChevronRight className="h-4.5 w-4.5 text-slate-400" />
                               )}
                               <Folder className="h-5 w-5 text-amber-500" />
-                              <span className="text-xs sm:text-sm font-bold text-white dark:text-white light:text-slate-850">{folderName}</span>
-                              <span className="text-[10px] text-slate-500 dark:text-slate-500 light:text-slate-600 bg-slate-950 dark:bg-slate-950 light:bg-slate-150 px-2 py-0.5 rounded-full">
+                              <span className="text-xs sm:text-sm font-bold text-white">{folderName}</span>
+                              <span className="text-[10px] text-slate-500 bg-slate-950 px-2 py-0.5 rounded-full">
                                 {files.length} {files.length === 1 ? 'file' : 'files'}
                               </span>
                             </div>
@@ -745,31 +1029,48 @@ export default function ClientDashboard() {
 
                           {/* Files list */}
                           {isExpanded && (
-                            <div className="p-2.5 divide-y divide-slate-850 dark:divide-slate-850 light:divide-slate-100">
+                            <div className="p-2.5 divide-y divide-slate-850 bg-slate-900/10">
                               {files.length === 0 ? (
-                                <div className="text-center py-4 text-xs text-slate-500">
+                                <div className="text-center py-4 text-xs text-slate-550">
                                   No files inside this folder directory.
                                 </div>
                               ) : (
                                 files.map((doc) => (
-                                  <div key={doc.id} className="flex items-center justify-between p-3 hover:bg-slate-900/20 dark:hover:bg-slate-900/20 light:hover:bg-slate-50 rounded-xl transition-colors">
+                                  <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 gap-3 hover:bg-slate-900/20 rounded-xl transition-colors">
                                     <div className="flex items-center gap-3">
-                                      <File className="h-4.5 w-4.5 text-sky-400" />
+                                      <File className="h-5 w-5 text-sky-400" />
                                       <div>
-                                        <h5 className="text-xs font-bold text-white dark:text-white light:text-slate-800 max-w-[200px] sm:max-w-md truncate" title={doc.name}>
+                                        <h5 className="text-xs font-bold text-white max-w-[200px] sm:max-w-md truncate" title={doc.name}>
                                           {doc.name}
                                         </h5>
-                                        <p className="text-[10px] text-slate-450 dark:text-slate-455 light:text-slate-550 mt-0.5">Size: {doc.size} • Uploaded: {doc.date}</p>
+                                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-slate-455 mt-0.5">
+                                          <span>Size: {doc.size}</span>
+                                          <span>•</span>
+                                          <span>Uploaded: {doc.date}</span>
+                                          <span>•</span>
+                                          <span>By: <strong className="text-slate-300">{doc.uploadedByName || (doc.uploadedBy === 'client' ? 'Client' : 'Contractor')}</strong></span>
+                                        </div>
                                       </div>
                                     </div>
 
-                                    <button 
-                                      onClick={() => alert(`Simulated document download for file "${doc.name}" started successfully.`)}
-                                      className="flex items-center gap-1.5 rounded-lg border border-slate-850 hover:border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[10px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-700 hover:text-white dark:hover:text-white light:hover:bg-slate-100 transition-all"
-                                      title={`Download ${doc.name}`}
-                                    >
-                                      <Download className="h-3.5 w-3.5" /> Download
-                                    </button>
+                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                      <button 
+                                        onClick={() => triggerDownload(doc.fileUrl, doc.name)}
+                                        className="flex items-center gap-1.5 rounded-lg border border-slate-850 hover:border-slate-700 bg-slate-900/40 px-3 py-1.5 text-[10px] font-bold text-slate-300 hover:text-white transition-all"
+                                        title={`Download ${doc.name}`}
+                                      >
+                                        <Download className="h-3.5 w-3.5" /> Download
+                                      </button>
+                                      {doc.uploadedBy === 'client' && (
+                                        <button
+                                          onClick={() => handleDeleteDoc(doc.id, doc.uploadedBy)}
+                                          className="p-2 text-slate-500 hover:text-rose-455 hover:bg-slate-850 rounded transition-colors"
+                                          title="Delete Document"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 ))
                               )}
@@ -783,27 +1084,29 @@ export default function ClientDashboard() {
               </div>
             )}
 
-            {/* 6. Profile Tab */}
+            {/* 6. Profile & Inquiry Tab */}
             {activeTab === 'profile' && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 
                 {/* Profile detail card */}
                 <div className="lg:col-span-4 space-y-6">
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-6 space-y-5">
+                  <div className="glass-panel rounded-2xl p-6 space-y-5">
                     <div className="flex flex-col items-center text-center">
                       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 shadow-inner">
-                        <User className="h-8 w-8" />
+                        <User className="h-7 w-7" />
                       </div>
-                      <h4 className="mt-4 font-bold text-white dark:text-white light:text-slate-900 text-lg leading-tight">{currentUser.name}</h4>
-                      <p className="text-xs text-emerald-400 font-semibold tracking-wide uppercase mt-1">Client Profile</p>
+                      <h4 className="font-extrabold text-white text-md mt-3.5">{currentUser.name}</h4>
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-450 mt-1 bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 rounded-full">
+                        Client Account
+                      </span>
                     </div>
 
-                    <div className="border-t border-slate-850 dark:border-slate-850 light:border-slate-100 pt-4 space-y-3.5 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
+                    <div className="border-t border-slate-850 pt-4 space-y-3.5 text-xs text-slate-300">
                       <div className="flex items-center gap-3">
                         <Mail className="h-4 w-4 text-slate-500" />
                         <div>
                           <p className="text-[10px] font-bold text-slate-500 uppercase">Email Address</p>
-                          <p className="text-white dark:text-white light:text-slate-900 mt-0.5">{currentUser.email}</p>
+                          <p className="text-white mt-0.5">{currentUser.email}</p>
                         </div>
                       </div>
 
@@ -812,7 +1115,7 @@ export default function ClientDashboard() {
                           <Phone className="h-4 w-4 text-slate-500" />
                           <div>
                             <p className="text-[10px] font-bold text-slate-500 uppercase">Contact Number</p>
-                            <p className="text-white dark:text-white light:text-slate-900 mt-0.5">{currentUser.phone}</p>
+                            <p className="text-white mt-0.5">{currentUser.phone}</p>
                           </div>
                         </div>
                       )}
@@ -821,7 +1124,7 @@ export default function ClientDashboard() {
                         <MapPin className="h-4 w-4 text-slate-500" />
                         <div>
                           <p className="text-[10px] font-bold text-slate-500 uppercase">Linked Project Site</p>
-                          <p className="text-white dark:text-white light:text-slate-900 mt-0.5 font-medium">{project.projectName}</p>
+                          <p className="text-white mt-0.5 font-medium">{project.projectName}</p>
                         </div>
                       </div>
                     </div>
@@ -832,36 +1135,36 @@ export default function ClientDashboard() {
                 <div className="lg:col-span-8 space-y-6">
                   
                   {/* Inquiry / Message Contractor Form */}
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-6 space-y-4">
-                    <div className="flex items-center gap-2 border-b border-slate-850 dark:border-slate-850 light:border-slate-100 pb-3">
-                      <MessageSquare className="h-5 w-5 text-sky-400" />
+                  <div className="glass-panel rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-slate-850 pb-3">
+                      <MessageSquare className="h-5 w-5 text-emerald-450" />
                       <div>
-                        <h4 className="font-bold text-white dark:text-white light:text-slate-900 text-sm">Send Contractor Inquiry</h4>
-                        <p className="text-[11px] text-slate-450 dark:text-slate-450 light:text-slate-550">Submit general queries, order approvals, or design notes</p>
+                        <h4 className="font-bold text-white text-sm">Send Contractor Inquiry</h4>
+                        <p className="text-[11px] text-slate-450">Submit general queries, order approvals, or design notes</p>
                       </div>
                     </div>
 
                     <form onSubmit={handleContactContractor} className="space-y-4">
                       {inquirySuccess && (
-                        <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-450 dark:text-emerald-450 light:text-emerald-600">
+                        <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-400">
                           <CheckCircle className="h-4 w-4 shrink-0" />
-                          <span>Inquiry message sent successfully! Your contractor will notify you on read.</span>
+                          <span>Inquiry message sent successfully! Your contractor will receive a notification.</span>
                         </div>
                       )}
 
                       {inquiryError && (
-                        <div className="text-rose-450 text-xs font-semibold bg-rose-500/10 border border-rose-500/20 rounded p-3">
+                        <div className="text-rose-455 text-xs font-semibold bg-rose-500/10 border border-rose-500/20 rounded p-3">
                           {inquiryError}
                         </div>
                       )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-650 uppercase mb-1.5">Inquiry Category</label>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Inquiry Category</label>
                           <select
                             value={inquiryCategory}
                             onChange={(e) => setInquiryCategory(e.target.value)}
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none focus:border-sky-500"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                           >
                             <option value="General Query">General Query</option>
                             <option value="Design Change">Design Change Approval</option>
@@ -871,34 +1174,34 @@ export default function ClientDashboard() {
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-650 uppercase mb-1.5">Subject Heading</label>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Subject Heading</label>
                           <input
                             type="text"
                             required
                             placeholder="e.g. Cedar planks shade stain"
                             value={inquirySubject}
                             onChange={(e) => setInquirySubject(e.target.value)}
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none focus:border-sky-500"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-650 uppercase mb-1.5">Message Content</label>
+                        <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Message Content</label>
                         <textarea
                           rows={3}
                           required
                           placeholder="Type inquiry details here for your contractor..."
                           value={inquiryMessage}
                           onChange={(e) => setInquiryMessage(e.target.value)}
-                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none focus:border-sky-500"
+                          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                         />
                       </div>
 
                       <div className="flex justify-end">
                         <button
                           type="submit"
-                          className="flex items-center gap-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 px-4 py-2.5 text-xs font-bold text-white transition-all hover:scale-[1.01]"
+                          className="flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white transition-all hover:scale-[1.01]"
                         >
                           <Send className="h-3.5 w-3.5" /> Submit Inquiry
                         </button>
@@ -907,51 +1210,51 @@ export default function ClientDashboard() {
                   </div>
 
                   {/* Change Password Form */}
-                  <div className="glass-panel dark:glass-panel light:bg-white light:border-slate-200 rounded-2xl p-6 space-y-4">
-                    <div className="flex items-center gap-2 border-b border-slate-850 dark:border-slate-850 light:border-slate-100 pb-3">
+                  <div className="glass-panel rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-slate-850 pb-3">
                       <Lock className="h-5 w-5 text-amber-500" />
                       <div>
-                        <h4 className="font-bold text-white dark:text-white light:text-slate-900 text-sm">Modify Account Password</h4>
-                        <p className="text-[11px] text-slate-450 dark:text-slate-455 light:text-slate-550">Update password security credentials periodically</p>
+                        <h4 className="font-bold text-white text-sm">Modify Account Password</h4>
+                        <p className="text-[11px] text-slate-455">Update password security credentials periodically</p>
                       </div>
                     </div>
 
                     <form onSubmit={handlePasswordChange} className="space-y-4">
                       {passwordSuccess && (
-                        <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-450 dark:text-emerald-450 light:text-emerald-600">
+                        <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-450">
                           <ShieldCheck className="h-4 w-4 shrink-0" />
                           <span>Credentials changed successfully. Use your new password at next login!</span>
                         </div>
                       )}
 
                       {passwordError && (
-                        <div className="text-rose-450 text-xs font-semibold bg-rose-500/10 border border-rose-500/20 rounded p-3">
+                        <div className="text-rose-455 text-xs font-semibold bg-rose-500/10 border border-rose-500/20 rounded p-3">
                           {passwordError}
                         </div>
                       )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-650 uppercase mb-1.5">New Password</label>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">New Password</label>
                           <input
                             type="password"
                             required
                             placeholder="Min. 6 characters"
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none focus:border-sky-500"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-350 dark:text-slate-350 light:text-slate-650 uppercase mb-1.5">Confirm Password</label>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Confirm Password</label>
                           <input
                             type="password"
                             required
                             placeholder="Repeat new password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none focus:border-sky-500"
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                           />
                         </div>
                       </div>
@@ -977,46 +1280,129 @@ export default function ClientDashboard() {
 
       </main>
 
-      {/* Simulator Photo Upload Modal */}
+      {/* Progress Photo Share Modal */}
       {showPhotoModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 dark:border-slate-800 dark:bg-slate-900 light:bg-white light:border-slate-200 p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 dark:border-slate-800 light:border-slate-100 pb-3">
-              <h3 className="font-bold text-white dark:text-white light:text-slate-900 text-md">Share Progress Photo</h3>
-              <button onClick={() => setShowPhotoModal(false)} className="text-slate-450 hover:text-white dark:text-slate-450 light:text-slate-500">&times;</button>
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-md">Upload Progress Photo</h3>
+              <button onClick={() => {
+                setShowPhotoModal(false);
+                setPhotoFile(null);
+                setPhotoCaption('');
+              }} className="text-slate-400 hover:text-white">&times;</button>
             </div>
 
-            <form onSubmit={handleSimulatePhotoUpload} className="mt-4 space-y-4">
-              <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 leading-relaxed">
-                Provide any online image URL below to simulate photo submission. It will append to the project progress logs.
+            <form onSubmit={handlePhotoUpload} className="mt-4 space-y-4">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Choose an image file from your device. It will upload as a progress milestone visible in the project photo timeline.
               </p>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-305 dark:text-slate-300 light:text-slate-700 uppercase mb-1.5">Image Web URL</label>
+                <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Select Image File</label>
                 <input 
-                  type="url"
+                  type="file"
                   required
-                  placeholder="e.g. https://images.unsplash.com/..."
-                  value={newPhotoUrl}
-                  onChange={(e) => setNewPhotoUrl(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white dark:border-slate-700 dark:bg-slate-950 light:border-slate-300 light:bg-slate-100 light:text-slate-900 focus:outline-none"
-                  autoFocus
+                  accept="image/*"
+                  onChange={(e) => setPhotoFile(e.target.files[0])}
+                  className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-450 hover:file:bg-emerald-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Photo Caption / Description</label>
+                <input 
+                  type="text"
+                  required
+                  placeholder="e.g. Wall bricklaying progress"
+                  value={photoCaption}
+                  onChange={(e) => setPhotoCaption(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowPhotoModal(false)}
-                  className="flex-1 rounded border border-slate-800 bg-slate-900 py-2 text-xs font-bold text-slate-350 dark:text-slate-300 light:border-slate-200 light:bg-slate-100 light:text-slate-700"
+                  onClick={() => {
+                    setShowPhotoModal(false);
+                    setPhotoFile(null);
+                    setPhotoCaption('');
+                  }}
+                  className="flex-1 rounded border border-slate-800 bg-slate-900 py-2 text-xs font-bold text-slate-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded bg-emerald-500 py-2 text-xs font-bold text-white hover:bg-emerald-600 shadow"
+                  disabled={uploadingPhoto}
+                  className="flex-1 rounded bg-emerald-500 py-2 text-xs font-bold text-white hover:bg-emerald-600 shadow disabled:opacity-50"
                 >
-                  Post Photo
+                  {uploadingPhoto ? 'Uploading...' : 'Post Photo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Document Upload Modal */}
+      {showDocModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-md">Upload Document</h3>
+              <button onClick={() => {
+                setShowDocModal(false);
+                setDocFile(null);
+              }} className="text-slate-400 hover:text-white">&times;</button>
+            </div>
+
+            <form onSubmit={handleDocUpload} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Select File (PDF, Image, etc.)</label>
+                <input 
+                  type="file"
+                  required
+                  onChange={(e) => setDocFile(e.target.files[0])}
+                  className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-450 hover:file:bg-emerald-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Category Folder</label>
+                <select
+                  value={docType}
+                  onChange={(e) => setDocType(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="2D Drawings">2D Drawings</option>
+                  <option value="3D Designs">3D Designs</option>
+                  <option value="Contracts">Contracts</option>
+                  <option value="Bills / Invoices">Bills / Invoices</option>
+                  <option value="PDFs">PDFs</option>
+                  <option value="Images">Images</option>
+                  <option value="Other project files">Other project files</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDocModal(false);
+                    setDocFile(null);
+                  }}
+                  className="flex-1 rounded border border-slate-800 bg-slate-900 py-2 text-xs font-bold text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploadingDoc}
+                  className="flex-1 rounded bg-emerald-500 py-2 text-xs font-bold text-white hover:bg-emerald-600 shadow disabled:opacity-50"
+                >
+                  {uploadingDoc ? 'Uploading...' : 'Upload File'}
                 </button>
               </div>
             </form>
@@ -1036,7 +1422,7 @@ export default function ClientDashboard() {
             <X className="h-6 w-6" />
           </button>
 
-          <div className="max-w-4xl max-h-[75vh] relative overflow-hidden rounded-2xl border border-slate-800 dark:border-slate-800 light:border-slate-200 shadow-2xl flex items-center justify-center bg-black">
+          <div className="max-w-4xl max-h-[75vh] relative overflow-hidden rounded-2xl border border-slate-800 shadow-2xl flex items-center justify-center bg-black">
             <img 
               src={activeLightboxPhoto.url} 
               alt="Lightbox display" 
@@ -1045,23 +1431,23 @@ export default function ClientDashboard() {
           </div>
 
           <div className="mt-4 flex flex-col items-center text-center gap-2">
-            <span className="text-xs text-slate-400 font-semibold tracking-wide">Captured on {activeLightboxPhoto.date}</span>
-            <div className="flex gap-3">
+            <h4 className="text-sm font-bold text-white">"{activeLightboxPhoto.caption}"</h4>
+            <span className="text-[10px] text-slate-400 font-semibold tracking-wide">
+              Logged by {activeLightboxPhoto.uploadedByName} on {activeLightboxPhoto.date}
+            </span>
+            <div className="flex gap-3 mt-1">
               <button
                 onClick={() => window.open(activeLightboxPhoto.url, '_blank')}
                 className="flex items-center gap-1 text-xs font-bold bg-slate-900 border border-slate-800 text-slate-300 hover:text-white px-4 py-2 rounded-lg transition-colors"
               >
                 <ExternalLink className="h-4 w-4" /> Open Original
               </button>
-              <a
-                href={activeLightboxPhoto.url}
-                download={`site_photo_full.jpg`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-xs font-bold bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg transition-all"
+              <button
+                onClick={() => triggerDownload(activeLightboxPhoto.url, 'progress_full.jpg')}
+                className="flex items-center gap-1 text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition-all"
               >
                 <Download className="h-4 w-4" /> Download Photo
-              </a>
+              </button>
             </div>
           </div>
         </div>

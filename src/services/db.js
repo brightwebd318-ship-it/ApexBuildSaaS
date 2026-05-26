@@ -10,7 +10,10 @@ const KEYS = {
   DOCUMENTS: 'cms_documents',
   SESSION: 'cms_session',
   EMAILS: 'cms_simulated_emails',
-  NOTIFICATIONS: 'cms_notifications'
+  NOTIFICATIONS: 'cms_notifications',
+  PHOTOS: 'cms_photos',
+  LABOURS: 'cms_labours',
+  ATTENDANCE: 'cms_attendance'
 };
 
 let emailSentCallback = () => {};
@@ -67,7 +70,7 @@ export const db = {
         projectName: 'Arun Villa Project',
         siteLocation: 'Plot 45, Sector 4, Bangalore, India',
         constructionType: 'Residential Villa',
-        budget: 150000,
+        budget: 1500000,
         startDate: '2026-05-01',
         estimatedFinish: '2026-12-15',
         status: 'Active'
@@ -79,7 +82,7 @@ export const db = {
         projectName: 'Manu Residence',
         siteLocation: 'Villa 12, Palm Meadows, Austin, TX',
         constructionType: 'Modern Townhouse',
-        budget: 95000,
+        budget: 950000,
         startDate: '2026-04-10',
         estimatedFinish: '2026-10-30',
         status: 'Active'
@@ -126,13 +129,13 @@ export const db = {
 
     // 5. Seed Costs
     const costs = [
-      { id: 'cost_arun_1', project_id: 'proj_arun', item_name: 'Excavator & Earthmover Rental Fee', amount: 5400, category: 'Equipment', status: 'Paid', invoiceUrl: 'https://example.com/invoice.pdf' },
-      { id: 'cost_arun_2', project_id: 'proj_arun', item_name: 'Ready-mix Concrete Cast Slab', amount: 11200, category: 'Materials', status: 'Paid', invoiceUrl: '' },
-      { id: 'cost_arun_3', project_id: 'proj_arun', item_name: 'Blue Mosaic Ceramic Tiling supply', amount: 6700, category: 'Materials', status: 'Pending', invoiceUrl: '' },
+      { id: 'cost_arun_1', project_id: 'proj_arun', item_name: 'Excavator & Earthmover Rental Fee', amount: 54000, category: 'Equipment', status: 'Paid', invoiceUrl: 'https://example.com/invoice.pdf' },
+      { id: 'cost_arun_2', project_id: 'proj_arun', item_name: 'Ready-mix Concrete Cast Slab', amount: 112000, category: 'Materials', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_arun_3', project_id: 'proj_arun', item_name: 'Blue Mosaic Ceramic Tiling supply', amount: 67000, category: 'Materials', status: 'Pending', invoiceUrl: '' },
 
-      { id: 'cost_manu_1', project_id: 'proj_manu', item_name: 'Cedar fence planks & posts supply', amount: 4800, category: 'Materials', status: 'Paid', invoiceUrl: '' },
-      { id: 'cost_manu_2', project_id: 'proj_manu', item_name: 'Compact gravel & grading machinery', amount: 3100, category: 'Subcontractor', status: 'Paid', invoiceUrl: '' },
-      { id: 'cost_manu_3', project_id: 'proj_manu', item_name: 'Patio Paving Blocks delivery', amount: 5900, category: 'Materials', status: 'Pending', invoiceUrl: '' }
+      { id: 'cost_manu_1', project_id: 'proj_manu', item_name: 'Cedar fence planks & posts supply', amount: 48000, category: 'Materials', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_manu_2', project_id: 'proj_manu', item_name: 'Compact gravel & grading machinery', amount: 31000, category: 'Subcontractor', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_manu_3', project_id: 'proj_manu', item_name: 'Patio Paving Blocks delivery', amount: 59000, category: 'Materials', status: 'Pending', invoiceUrl: '' }
     ];
 
     // 6. Seed Documents
@@ -161,10 +164,140 @@ export const db = {
         contractorId: 'user_contractor_1',
         clientId: 'user_client_arun',
         title: 'Subcontractor Cost Logged',
-        message: 'Contractor added grading machinery fee of $3,100 to budget sheet.',
+        message: 'Contractor added grading machinery fee of ₹31,000 to budget sheet.',
         date: new Date(Date.now() - 7200000).toLocaleString(),
         read: false,
         target: 'contractor'
+      }
+    ];
+
+    // 8. Seed Photos (Timeline Photos)
+    const photos = [
+      {
+        id: 'photo_seed_1',
+        projectId: 'proj_arun',
+        uploadedBy: 'contractor',
+        uploadedByName: 'BuildSmart Solutions LLC',
+        photoUrl: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=800&q=80',
+        caption: 'Excavation completed for pool foundation slab.',
+        date: '2026-05-24',
+        time: '14:30',
+        timestamp: '2026-05-24T14:30:00.000Z'
+      },
+      {
+        id: 'photo_seed_2',
+        projectId: 'proj_manu',
+        uploadedBy: 'contractor',
+        uploadedByName: 'BuildSmart Solutions LLC',
+        photoUrl: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80',
+        caption: 'Installed cedar privacy fencing panels.',
+        date: '2026-05-25',
+        time: '11:15',
+        timestamp: '2026-05-25T11:15:00.000Z'
+      }
+    ];
+
+    localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+    localStorage.setItem(KEYS.EMAILS, JSON.stringify([]));
+    localStorage.setItem(KEYS.PHOTOS, JSON.stringify(photos));
+
+    // 9. Seed Labours
+    const labours = [
+      {
+        id: 'labour_1',
+        contractorId: 'user_contractor_1',
+        name: 'Rajesh Kumar',
+        phone: '+91 98765 43210',
+        role: 'Mason',
+        status: 'Active',
+        address: '12, Gandhi Nagar, Bangalore, India',
+        joiningDate: '2026-01-10',
+        emergencyContact: 'Sita Devi (Wife) - +91 98765 43215',
+        idProof: 'Aadhaar Card: XXXX-XXXX-1234'
+      },
+      {
+        id: 'labour_2',
+        contractorId: 'user_contractor_1',
+        name: 'Amit Singh',
+        phone: '+91 98765 43211',
+        role: 'Carpenter',
+        status: 'Active',
+        address: '45, Shastri Nagar, Bangalore, India',
+        joiningDate: '2026-02-15',
+        emergencyContact: 'Vijay Singh (Father) - +91 98765 43216',
+        idProof: 'PAN Card: ABCDE1234F'
+      },
+      {
+        id: 'labour_3',
+        contractorId: 'user_contractor_1',
+        name: 'Ramesh Patel',
+        phone: '+91 98765 43212',
+        role: 'Electrician',
+        status: 'Active',
+        address: 'Villa 5, Patel Chawl, Bangalore, India',
+        joiningDate: '2026-03-20',
+        emergencyContact: 'Dinesh Patel (Brother) - +91 98765 43217',
+        idProof: 'Driving License: KA-03-2026-001'
+      },
+      {
+        id: 'labour_4',
+        contractorId: 'user_contractor_1',
+        name: 'Suresh Das',
+        phone: '+91 98765 43213',
+        role: 'Helper',
+        status: 'Inactive',
+        address: '7, Rajaji Nagar, Bangalore, India',
+        joiningDate: '2026-04-05',
+        emergencyContact: 'Karan Das (Son) - +91 98765 43218',
+        idProof: 'Voter ID: WXY1234567'
+      }
+    ];
+
+    // 10. Seed Attendance Logs
+    const attendance = [
+      {
+        id: 'att_1',
+        labourId: 'labour_1',
+        projectId: 'proj_arun',
+        projectName: 'Arun Villa Project',
+        date: '2026-05-24',
+        status: 'Present',
+        remarks: 'Excavation team leader',
+        timeEntry: '08:45 AM',
+        contractorId: 'user_contractor_1'
+      },
+      {
+        id: 'att_2',
+        labourId: 'labour_2',
+        projectId: 'proj_arun',
+        projectName: 'Arun Villa Project',
+        date: '2026-05-24',
+        status: 'Present',
+        remarks: 'Framing support',
+        timeEntry: '08:50 AM',
+        contractorId: 'user_contractor_1'
+      },
+      {
+        id: 'att_3',
+        labourId: 'labour_3',
+        projectId: 'proj_manu',
+        projectName: 'Manu Residence',
+        date: '2026-05-25',
+        status: 'Half Day',
+        remarks: 'Left early for medical checkup',
+        timeEntry: '09:00 AM',
+        contractorId: 'user_contractor_1'
+      },
+      {
+        id: 'att_4',
+        labourId: 'labour_4',
+        projectId: 'proj_arun',
+        projectName: 'Arun Villa Project',
+        date: '2026-05-25',
+        status: 'Absent',
+        remarks: 'Prior approved sick leave',
+        timeEntry: '--',
+        contractorId: 'user_contractor_1'
       }
     ];
 
@@ -174,8 +307,8 @@ export const db = {
     localStorage.setItem(KEYS.TIMELINE, JSON.stringify(timeline));
     localStorage.setItem(KEYS.COSTS, JSON.stringify(costs));
     localStorage.setItem(KEYS.DOCUMENTS, JSON.stringify(documents));
-    localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifications));
-    localStorage.setItem(KEYS.EMAILS, JSON.stringify([]));
+    localStorage.setItem(KEYS.LABOURS, JSON.stringify(labours));
+    localStorage.setItem(KEYS.ATTENDANCE, JSON.stringify(attendance));
   },
 
   getData(key) {
@@ -243,6 +376,17 @@ export const db = {
     if (user.role === 'contractor' && proj.contractorId !== user.uid) return null;
     if (user.role === 'client' && proj.clientId !== user.uid) return null;
     return proj;
+  },
+
+  updateProjectBudget(projectId, newBudget) {
+    const projects = this.getData(KEYS.PROJECTS);
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx !== -1) {
+      projects[idx].budget = parseFloat(newBudget) || 0;
+      this.setData(KEYS.PROJECTS, projects);
+      return projects[idx];
+    }
+    return null;
   },
 
   getClientsForContractor(contractorId) {
@@ -476,12 +620,52 @@ export const db = {
       project_id: projectId,
       name: docData.name,
       size: docData.size || '1.0 MB',
-      type: docData.type || 'Drawing',
-      date: new Date().toISOString().split('T')[0]
+      type: docData.type || '2D Drawings',
+      date: new Date().toISOString().split('T')[0],
+      fileUrl: docData.fileUrl || '',
+      uploadedBy: docData.uploadedBy || 'contractor',
+      uploadedByName: docData.uploadedByName || '',
+      visibleTo: docData.visibleTo || 'both'
     };
     docs.push(newDoc);
     this.setData(KEYS.DOCUMENTS, docs);
     return newDoc;
+  },
+
+  deleteDocument(docId) {
+    const docs = this.getData(KEYS.DOCUMENTS);
+    const updated = docs.filter(d => d.id !== docId);
+    this.setData(KEYS.DOCUMENTS, updated);
+  },
+
+  // Progress Photos (Timeline Photos)
+  getProgressPhotos(projectId) {
+    const photos = this.getData(KEYS.PHOTOS);
+    return photos.filter(p => p.projectId === projectId).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  },
+
+  addProgressPhoto(projectId, photoData) {
+    const photos = this.getData(KEYS.PHOTOS);
+    const newPhoto = {
+      id: `photo_${Date.now()}`,
+      projectId,
+      uploadedBy: photoData.uploadedBy || 'contractor',
+      uploadedByName: photoData.uploadedByName || '',
+      photoUrl: photoData.photoUrl,
+      caption: photoData.caption || '',
+      date: photoData.date || new Date().toISOString().split('T')[0],
+      time: photoData.time || new Date().toTimeString().split(' ')[0].substring(0, 5),
+      timestamp: photoData.timestamp || new Date().toISOString()
+    };
+    photos.push(newPhoto);
+    this.setData(KEYS.PHOTOS, photos);
+    return newPhoto;
+  },
+
+  deleteProgressPhoto(photoId) {
+    const photos = this.getData(KEYS.PHOTOS);
+    const updated = photos.filter(p => p.id !== photoId);
+    this.setData(KEYS.PHOTOS, updated);
   },
 
   getSimulatedEmails() {
@@ -491,5 +675,68 @@ export const db = {
   clearSimulatedEmails() {
     this.setData(KEYS.EMAILS, []);
     emailSentCallback();
+  },
+
+  getLabours(contractorId) {
+    const list = this.getData(KEYS.LABOURS);
+    return list.filter(l => l.contractorId === contractorId);
+  },
+
+  addLabour(contractorId, labourData) {
+    const list = this.getData(KEYS.LABOURS);
+    const newLabour = {
+      id: `labour_${Date.now()}`,
+      contractorId,
+      name: labourData.name,
+      phone: labourData.phone,
+      role: labourData.role || 'Helper',
+      status: labourData.status || 'Active',
+      address: labourData.address || '',
+      joiningDate: labourData.joiningDate || new Date().toISOString().split('T')[0],
+      emergencyContact: labourData.emergencyContact || '',
+      idProof: labourData.idProof || ''
+    };
+    list.push(newLabour);
+    this.setData(KEYS.LABOURS, list);
+    return newLabour;
+  },
+
+  updateLabour(labourId, updateData) {
+    const list = this.getData(KEYS.LABOURS);
+    const idx = list.findIndex(l => l.id === labourId);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...updateData };
+      this.setData(KEYS.LABOURS, list);
+      return list[idx];
+    }
+    return null;
+  },
+
+  getAttendanceLogs(contractorId) {
+    const logs = this.getData(KEYS.ATTENDANCE);
+    return logs.filter(a => a.contractorId === contractorId);
+  },
+
+  addAttendanceLog(contractorId, logData) {
+    const logs = this.getData(KEYS.ATTENDANCE);
+    const newLog = {
+      id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      labourId: logData.labourId,
+      projectId: logData.projectId,
+      projectName: logData.projectName,
+      date: logData.date || new Date().toISOString().split('T')[0],
+      status: logData.status || 'Present',
+      remarks: logData.remarks || '',
+      timeEntry: logData.timeEntry || new Date().toTimeString().split(' ')[0].substring(0, 5),
+      contractorId
+    };
+    logs.push(newLog);
+    this.setData(KEYS.ATTENDANCE, logs);
+    return newLog;
+  },
+
+  getLabourAttendance(labourId) {
+    const logs = this.getData(KEYS.ATTENDANCE);
+    return logs.filter(a => a.labourId === labourId).sort((a,b) => b.date.localeCompare(a.date));
   }
 };
