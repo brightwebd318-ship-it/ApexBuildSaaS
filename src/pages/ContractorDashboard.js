@@ -6,7 +6,7 @@ import {
   Trash2, ClipboardList, Package, BarChart3, MapPin, 
   FileText, Download, Bell, BellOff, Info, AlertTriangle, Paperclip, Camera,
   X, Maximize2, ExternalLink, Pencil, Folder, File, FileUp, ChevronDown, ChevronRight,
-  Search, Eye, Clock, UserCheck
+  Search, Eye, Clock, UserCheck, CreditCard
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line } from 'recharts';
 
@@ -66,6 +66,18 @@ export default function ContractorDashboard() {
   // Notifications Dropdown
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [viewAllNotifications, setViewAllNotifications] = useState(false);
+  
+  // Payment Stage Management States
+  const [paymentStages, setPaymentStages] = useState([]);
+  const [showStageModal, setShowStageModal] = useState(false);
+  const [editingStage, setEditingStage] = useState(null);
+  const [stageName, setStageName] = useState('');
+  const [stageDescription, setStageDescription] = useState('');
+  const [stageAmount, setStageAmount] = useState('');
+  const [stageDueDate, setStageDueDate] = useState('');
+  const [stageStatus, setStageStatus] = useState('Pending');
+  const [stagePaidAmount, setStagePaidAmount] = useState('0');
+  const [showAlarmBanner, setShowAlarmBanner] = useState(true);
 
   // Document folder expansion state
   const [expandedFolders, setExpandedFolders] = useState({
@@ -214,14 +226,15 @@ export default function ContractorDashboard() {
       // 5. Load sub-items from select project ID
       const targetProjId = selectedProjId || (projs.length > 0 ? projs[0].id : null);
       if (targetProjId) {
-        const [fetchUpdates, fetchTimeline, fetchCosts, fetchMaterials, fetchDocs, fetchPhotos, fetchAllLogs] = await Promise.all([
+        const [fetchUpdates, fetchTimeline, fetchCosts, fetchMaterials, fetchDocs, fetchPhotos, fetchAllLogs, fetchStages] = await Promise.all([
           firebaseService.getDailyUpdates(targetProjId),
           firebaseService.getTimeline(targetProjId),
           firebaseService.getCosts(targetProjId),
           firebaseService.getMaterials(targetProjId),
           firebaseService.getDocuments(targetProjId),
           firebaseService.getProgressPhotos(targetProjId),
-          firebaseService.getAttendanceLogs(currentUser.uid)
+          firebaseService.getAttendanceLogs(currentUser.uid),
+          firebaseService.getPaymentStages(targetProjId)
         ]);
 
         setAllUpdates(fetchUpdates);
@@ -231,6 +244,7 @@ export default function ContractorDashboard() {
         setAllDocuments(fetchDocs);
         setProgressPhotos(fetchPhotos);
         setAttendanceLogs(fetchAllLogs);
+        setPaymentStages(fetchStages);
       }
     } catch (e) {
       console.error("Data syncing failed", e);
@@ -833,6 +847,127 @@ export default function ContractorDashboard() {
     }
   };
 
+  // Payment Stage Handlers
+  const handleOpenAddStageModal = () => {
+    setEditingStage(null);
+    setStageName('');
+    setStageDescription('');
+    setStageAmount('');
+    setStageDueDate('');
+    setStageStatus('Pending');
+    setStagePaidAmount('0');
+    setShowStageModal(true);
+  };
+
+  const handleOpenEditStageModal = (stage) => {
+    setEditingStage(stage);
+    setStageName(stage.stageName);
+    setStageDescription(stage.stageDescription);
+    setStageAmount(stage.stageAmount.toString());
+    setStageDueDate(stage.dueDate);
+    setStageStatus(stage.status);
+    setStagePaidAmount(stage.paidAmount.toString());
+    setShowStageModal(true);
+  };
+
+  const handleDeleteStage = async (id) => {
+    if (window.confirm('Are you sure you want to delete this payment stage?')) {
+      try {
+        await firebaseService.deletePaymentStage(id);
+        syncAllData();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+  };
+
+  const handleSaveStage = async (e) => {
+    e.preventDefault();
+    if (!selectedProjId || !activeProj) {
+      alert("No active project selected.");
+      return;
+    }
+    if (!stageName || !stageAmount || !stageDueDate) {
+      alert("Please fill in stage name, amount, and due date.");
+      return;
+    }
+
+    try {
+      const parsedAmount = parseFloat(stageAmount) || 0;
+      const parsedPaid = parseFloat(stagePaidAmount) || 0;
+
+      const stageData = {
+        contractorId: currentUser.uid,
+        clientId: activeProj.clientId,
+        stageName,
+        stageDescription,
+        stageAmount: parsedAmount,
+        dueDate: stageDueDate,
+        status: stageStatus,
+        paidAmount: parsedPaid
+      };
+
+      if (editingStage) {
+        await firebaseService.updatePaymentStage(editingStage.id, stageData);
+        
+        // Notification logic based on status changes
+        if (stageStatus === 'Overdue') {
+          await firebaseService.addNotification(
+            selectedProjId,
+            currentUser.uid,
+            activeProj.clientId,
+            'PAYMENT OVERDUE ALARM',
+            `Critical Alert: Stage payment for ${stageName} (₹${parsedAmount.toLocaleString('en-IN')}) is OVERDUE. Please clear outstanding balance immediately to avoid project suspension.`,
+            'client',
+            'important'
+          );
+        } else if (stageStatus === 'Paid' || stageStatus === 'Partially Paid') {
+          await firebaseService.addNotification(
+            selectedProjId,
+            currentUser.uid,
+            activeProj.clientId,
+            'Payment Received Confirmation',
+            `Payment Confirmed: Contractor recorded payment of ₹${parsedPaid.toLocaleString('en-IN')} for stage ${stageName}. Outstanding balance: ₹${(parsedAmount - parsedPaid).toLocaleString('en-IN')}.`,
+            'client',
+            'normal'
+          );
+        } else {
+          await firebaseService.addNotification(
+            selectedProjId,
+            currentUser.uid,
+            activeProj.clientId,
+            'Payment Stage Updated',
+            `Contractor updated payment stage: ${stageName}. Status: ${stageStatus}.`,
+            'client',
+            'normal'
+          );
+        }
+        alert("Payment stage updated successfully!");
+      } else {
+        await firebaseService.addPaymentStage(selectedProjId, stageData);
+        
+        // Notify Client
+        await firebaseService.addNotification(
+          selectedProjId,
+          currentUser.uid,
+          activeProj.clientId,
+          'New Payment Stage Created',
+          `Contractor created new payment stage: ${stageName} of ₹${parsedAmount.toLocaleString('en-IN')}, due on ${stageDueDate}.`,
+          'client',
+          'normal'
+        );
+        alert("Payment stage created successfully!");
+      }
+
+      setShowStageModal(false);
+      setEditingStage(null);
+      syncAllData();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save payment stage.");
+    }
+  };
+
   // --- Overall Calculations ---
   const activeProj = projects.find(p => p.id === selectedProjId) || null;
   const totalClientsCount = allClients.length;
@@ -941,7 +1076,9 @@ export default function ContractorDashboard() {
                 >
                   <Bell className="h-4.5 w-4.5" />
                   {notifications.some(n => !n.read) && (
-                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-slate-900 animate-pulse-soft" />
+                    <span className={`absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-slate-900 animate-pulse-soft ${
+                      notifications.some(n => !n.read && n.priority === 'important') ? 'bg-rose-500' : 'bg-emerald-500'
+                    }`} />
                   )}
                 </button>
 
@@ -979,38 +1116,57 @@ export default function ContractorDashboard() {
                             Your inbox is completely empty.
                           </div>
                         ) : (
-                          (viewAllNotifications ? notifications : notifications.slice(0, 5)).map((n) => (
-                            <div
-                              key={n.id}
-                              onClick={() => {
-                                if (!n.read) {
-                                  handleMarkNotificationRead(n.id);
-                                }
-                              }}
-                              className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
-                                n.read
-                                  ? 'border-slate-850 bg-slate-950/20 text-slate-400'
-                                  : 'border-sky-500/20 bg-sky-500/5 text-slate-200 shadow-sm'
-                              }`}
-                            >
-                              <div className="flex justify-between items-start gap-2">
-                                <h4 className="font-bold text-xs text-white">{n.title}</h4>
-                                {!n.read && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleMarkNotificationRead(n.id);
-                                    }}
-                                    className="text-[9px] font-bold text-sky-455 hover:underline shrink-0"
-                                  >
-                                    Mark read
-                                  </button>
-                                )}
+                          (() => {
+                            const importantNotifs = notifications.filter(n => n.priority === 'important');
+                            const normalNotifs = notifications.filter(n => n.priority !== 'important');
+                            const sortedNotifs = [...importantNotifs, ...normalNotifs];
+                            const visibleNotifs = viewAllNotifications ? sortedNotifs : sortedNotifs.slice(0, 5);
+                            
+                            return visibleNotifs.map((n) => (
+                              <div
+                                key={n.id}
+                                onClick={() => {
+                                  if (!n.read) {
+                                    handleMarkNotificationRead(n.id);
+                                  }
+                                }}
+                                className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
+                                  n.read
+                                    ? 'border-slate-850 bg-slate-950/20 text-slate-450'
+                                    : n.priority === 'important'
+                                      ? 'border-rose-500/30 bg-rose-500/5 text-slate-200 shadow-sm'
+                                      : 'border-sky-500/20 bg-sky-500/5 text-slate-200 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex justify-between items-start gap-2">
+                                  <h4 className="font-bold text-xs text-white flex items-center gap-1">
+                                    {n.priority === 'important' && (
+                                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0 animate-pulse" />
+                                    )}
+                                    {n.title}
+                                    {n.priority === 'important' && (
+                                      <span className="bg-rose-500/20 text-rose-455 text-[8px] font-extrabold px-1 rounded">IMPORTANT</span>
+                                    )}
+                                  </h4>
+                                  {!n.read && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkNotificationRead(n.id);
+                                      }}
+                                      className={`text-[9px] font-bold hover:underline shrink-0 ${
+                                        n.priority === 'important' ? 'text-rose-400' : 'text-sky-455'
+                                      }`}
+                                    >
+                                      Mark read
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-[11px] leading-normal text-slate-350">{n.message}</p>
+                                <span className="text-[9px] text-slate-555 block font-mono mt-0.5">{n.date}</span>
                               </div>
-                              <p className="text-[11px] leading-normal text-slate-350">{n.message}</p>
-                              <span className="text-[9px] text-slate-555 block font-mono mt-0.5">{n.date}</span>
-                            </div>
-                          ))
+                            ));
+                          })()
                         )}
                       </div>
 
@@ -1051,6 +1207,37 @@ export default function ContractorDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Top Critical Alerts Banner */}
+      {notifications.some(n => !n.read && n.priority === 'important') && showAlarmBanner && (
+        <div className="bg-rose-500/10 border-b border-rose-500/20 text-rose-200 px-4 py-3 shadow-sm">
+          <div className="mx-auto max-w-7xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <AlertTriangle className="h-4.5 w-4.5 text-rose-500 shrink-0 animate-pulse" />
+              <span>
+                <strong>CRITICAL ALERTS DETECTED:</strong> Outstanding payment stages or critical items require review.
+              </span>
+            </div>
+            <div className="flex items-center gap-4 shrink-0">
+              <button 
+                onClick={() => {
+                  setShowNotificationsDropdown(true);
+                  setViewAllNotifications(true);
+                }} 
+                className="text-xs font-bold text-rose-450 hover:underline"
+              >
+                View Alerts
+              </button>
+              <button 
+                onClick={() => setShowAlarmBanner(false)}
+                className="text-slate-455 hover:text-white text-xs font-extrabold"
+              >
+                &times;
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         
@@ -1093,6 +1280,7 @@ export default function ContractorDashboard() {
             { id: 'materials', label: 'Materials Ledger', icon: Package },
             { id: 'timeline', label: 'Milestones', icon: Calendar },
             { id: 'costs', label: 'Costs & Bills', icon: IndianRupee },
+            { id: 'payments', label: 'Payment Stages', icon: CreditCard },
             { id: 'documents', label: 'Document Vault', icon: FileText }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1969,6 +2157,153 @@ export default function ContractorDashboard() {
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 11: PAYMENT STAGES */}
+          {activeTab === 'payments' && (
+            <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-900 pb-4">
+                <div>
+                  <h3 className="text-md font-bold text-white">Project Payment Stages</h3>
+                  <p className="text-xs text-slate-455">Set up milestones, track client payments, and manage pending stage balances</p>
+                </div>
+                <button
+                  onClick={handleOpenAddStageModal}
+                  className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3.5 py-1.5 text-xs font-bold text-white transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> Create Stage
+                </button>
+              </div>
+
+              {/* Metrics */}
+              {(() => {
+                const totalCost = paymentStages.reduce((sum, s) => sum + s.stageAmount, 0);
+                const totalPaid = paymentStages.reduce((sum, s) => sum + s.paidAmount, 0);
+                const balance = totalCost - totalPaid;
+                const paidPercentage = totalCost > 0 ? Math.round((totalPaid / totalCost) * 100) : 0;
+
+                return (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                        <span className="text-[10px] uppercase font-bold text-slate-505 tracking-wider">Total Project Cost</span>
+                        <h4 className="text-xl font-extrabold text-white mt-1.5 font-mono">₹{totalCost.toLocaleString('en-IN')}</h4>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                          <div className="h-full bg-sky-500 rounded-full" style={{ width: '100%' }} />
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                        <span className="text-[10px] uppercase font-bold text-emerald-450 tracking-wider">Total Paid Amount</span>
+                        <h4 className="text-xl font-extrabold text-emerald-400 mt-1.5 font-mono">₹{totalPaid.toLocaleString('en-IN')}</h4>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                          <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${paidPercentage}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                        <span className="text-[10px] uppercase font-bold text-amber-500 tracking-wider">Remaining Balance</span>
+                        <h4 className="text-xl font-extrabold text-amber-400 mt-1.5 font-mono">₹{balance.toLocaleString('en-IN')}</h4>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full" style={{ width: `${100 - paidPercentage}%` }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Overall Progress Bar */}
+                    <div className="bg-slate-900/30 border border-slate-850 p-4 rounded-xl space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-400 font-medium">Payment Progress</span>
+                        <span className="text-white font-extrabold font-mono">{paidPercentage}% Cleared</span>
+                      </div>
+                      <div className="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-sky-500 to-teal-400 rounded-full transition-all duration-500" 
+                          style={{ width: `${paidPercentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Stages List Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-850">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950 border-b border-slate-850 text-slate-505 uppercase font-bold tracking-wider">
+                      <th className="py-3 px-4">Stage Details</th>
+                      <th className="py-3 px-4 text-right">Amount (₹)</th>
+                      <th className="py-3 px-4">Due Date</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Paid (₹)</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850 bg-slate-950/15">
+                    {paymentStages.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-500 font-semibold">
+                          No payment stages registered yet. Click "Create Stage" to set one up.
+                        </td>
+                      </tr>
+                    ) : (
+                      paymentStages.map((s, idx) => (
+                        <tr key={s.id} className="hover:bg-slate-900/10">
+                          <td className="py-3.5 px-4 max-w-xs">
+                            <div className="font-extrabold text-white flex items-center gap-1.5">
+                              <span className="text-[10px] text-slate-550 font-mono">#{idx+1}</span>
+                              {s.stageName}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{s.stageDescription}</p>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
+                            ₹{s.stageAmount.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-slate-350">
+                            {s.dueDate}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${
+                              s.status === 'Paid' 
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                : s.status === 'Overdue'
+                                  ? 'bg-rose-500/10 text-rose-455 border-rose-500/20 animate-pulse'
+                                  : s.status === 'Partially Paid'
+                                    ? 'bg-amber-500/10 text-amber-450 border-amber-500/20'
+                                    : 'bg-slate-805 text-slate-400 border-slate-700'
+                            }`}>
+                              {s.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-450">
+                            ₹{s.paidAmount.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleOpenEditStageModal(s)}
+                                className="p-1 hover:bg-slate-800 text-slate-450 hover:text-sky-400 rounded transition-colors"
+                                title="Edit Stage"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStage(s.id)}
+                                className="p-1 hover:bg-slate-800 text-slate-450 hover:text-rose-455 rounded transition-colors"
+                                title="Delete Stage"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -3356,6 +3691,128 @@ export default function ContractorDashboard() {
                   className="flex-1 rounded bg-sky-500 py-2 text-xs font-bold text-white hover:bg-sky-600 shadow"
                 >
                   Commit Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 11: CREATE/EDIT PAYMENT STAGE */}
+      {showStageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-md">
+                {editingStage ? 'Edit Payment Stage' : 'Create Payment Stage'}
+              </h3>
+              <button 
+                onClick={() => setShowStageModal(false)} 
+                className="text-slate-400 hover:text-white font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStage} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Stage Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Foundation Excavation"
+                  value={stageName}
+                  onChange={(e) => setStageName(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Stage Description</label>
+                <textarea
+                  placeholder="Describe structural completion criteria..."
+                  value={stageDescription}
+                  onChange={(e) => setStageDescription(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                  rows={2}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Stage Amount (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="e.g. 150000"
+                    value={stageAmount}
+                    onChange={(e) => setStageAmount(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={stageDueDate}
+                    onChange={(e) => setStageDueDate(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Status</label>
+                  <select
+                    value={stageStatus}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setStageStatus(newStatus);
+                      if (newStatus === 'Paid' && stageAmount) {
+                        setStagePaidAmount(stageAmount);
+                      } else if (newStatus === 'Pending' || newStatus === 'Overdue') {
+                        setStagePaidAmount('0');
+                      }
+                    }}
+                    className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Partially Paid">Partially Paid</option>
+                    <option value="Overdue">Overdue</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Paid Amount (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    disabled={stageStatus === 'Pending' || stageStatus === 'Overdue'}
+                    placeholder="0"
+                    value={stagePaidAmount}
+                    onChange={(e) => setStagePaidAmount(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowStageModal(false)}
+                  className="flex-1 rounded border border-slate-805 bg-slate-905 py-2 text-xs font-bold text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded bg-sky-500 py-2 text-xs font-bold text-white hover:bg-sky-600 shadow"
+                >
+                  {editingStage ? 'Save Changes' : 'Create Stage'}
                 </button>
               </div>
             </form>

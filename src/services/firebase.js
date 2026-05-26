@@ -678,7 +678,7 @@ export const firebaseService = {
     }
   },
 
-  async addNotification(projectId, contractorId, clientId, title, message, target) {
+  async addNotification(projectId, contractorId, clientId, title, message, target, priority = 'normal') {
     if (liveFirestore) {
       const { collection, addDoc } = require('firebase/firestore');
       await addDoc(collection(liveFirestore, 'notifications'), {
@@ -689,7 +689,8 @@ export const firebaseService = {
         message,
         date: new Date().toLocaleString(),
         read: false,
-        target
+        target,
+        priority
       });
     } else {
       const list = JSON.parse(localStorage.getItem('cms_notifications')) || [];
@@ -702,7 +703,8 @@ export const firebaseService = {
         message,
         date: new Date().toLocaleString(),
         read: false,
-        target
+        target,
+        priority
       };
       list.unshift(newNotif);
       localStorage.setItem('cms_notifications', JSON.stringify(list));
@@ -802,6 +804,56 @@ export const firebaseService = {
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.date.localeCompare(a.date));
     } else {
       return mockDb.getLabourAttendance(labourId);
+    }
+  },
+
+  async getPaymentStages(projectId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'payment_stages'), where('projectId', '==', projectId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      return mockDb.getPaymentStages(projectId);
+    }
+  },
+
+  async addPaymentStage(projectId, stageData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'payment_stages'), {
+        projectId,
+        contractorId: stageData.contractorId,
+        clientId: stageData.clientId,
+        stageName: stageData.stageName,
+        stageDescription: stageData.stageDescription || '',
+        stageAmount: parseFloat(stageData.stageAmount) || 0,
+        dueDate: stageData.dueDate,
+        status: stageData.status || 'Pending',
+        paidAmount: parseFloat(stageData.paidAmount) || 0
+      });
+      return { id: docRef.id, projectId, ...stageData };
+    } else {
+      return mockDb.addPaymentStage(projectId, stageData);
+    }
+  },
+
+  async updatePaymentStage(stageId, updateData) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      await updateDoc(doc(liveFirestore, 'payment_stages', stageId), updateData);
+      return { id: stageId, ...updateData };
+    } else {
+      return mockDb.updatePaymentStage(stageId, updateData);
+    }
+  },
+
+  async deletePaymentStage(stageId) {
+    if (liveFirestore) {
+      const { doc, deleteDoc } = require('firebase/firestore');
+      await deleteDoc(doc(liveFirestore, 'payment_stages', stageId));
+    } else {
+      mockDb.deletePaymentStage(stageId);
     }
   }
 };

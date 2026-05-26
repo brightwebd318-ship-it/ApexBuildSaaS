@@ -7,7 +7,7 @@ import {
   MapPin, CheckCircle, Image as ImageIcon, Download,
   User, Lock, Send, ChevronRight, ChevronDown, Folder, 
   File, Plus, X, Maximize2, ExternalLink, ShieldCheck, Mail, Phone, MessageSquare,
-  Bell, Trash2, FileUp, Eye
+  Bell, Trash2, FileUp, Eye, AlertTriangle, CreditCard, Clock
 } from 'lucide-react';
 import { ResponsiveContainer, Cell, PieChart, Pie, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -28,6 +28,8 @@ export default function ClientDashboard() {
   // Notifications Dropdown
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [viewAllNotifications, setViewAllNotifications] = useState(false);
+  const [showAlarmBanner, setShowAlarmBanner] = useState(true);
+  const [paymentStages, setPaymentStages] = useState([]);
 
   // Photo gallery and lightbox states
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -99,13 +101,14 @@ export default function ClientDashboard() {
       setProject(proj);
 
       // Fetch related data in parallel
-      const [updatesData, timelineData, costsData, documentsData, notificationsData, photosData] = await Promise.all([
+      const [updatesData, timelineData, costsData, documentsData, notificationsData, photosData, stagesData] = await Promise.all([
         firebaseService.getDailyUpdates(proj.id),
         firebaseService.getTimeline(proj.id),
         firebaseService.getCosts(proj.id),
         firebaseService.getDocuments(proj.id),
         firebaseService.getNotifications(userId, 'client'),
-        firebaseService.getProgressPhotos(proj.id)
+        firebaseService.getProgressPhotos(proj.id),
+        firebaseService.getPaymentStages(proj.id)
       ]);
 
       setUpdates(updatesData);
@@ -114,6 +117,7 @@ export default function ClientDashboard() {
       setDocuments(documentsData);
       setNotifications(notificationsData);
       setProgressPhotos(photosData);
+      setPaymentStages(stagesData);
 
     } catch (err) {
       console.error("Error loading client project data: ", err);
@@ -440,7 +444,9 @@ export default function ClientDashboard() {
                 >
                   <Bell className="h-4.5 w-4.5" />
                   {notifications.some(n => !n.read) && (
-                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-slate-900 animate-pulse-soft" />
+                    <span className={`absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-slate-900 animate-pulse-soft ${
+                      notifications.some(n => !n.read && n.priority === 'important') ? 'bg-rose-500' : 'bg-emerald-500'
+                    }`} />
                   )}
                 </button>
 
@@ -465,7 +471,7 @@ export default function ClientDashboard() {
                         {notifications.some(n => !n.read) && (
                           <button 
                             onClick={handleMarkAllRead}
-                            className="text-[10px] text-emerald-400 hover:underline font-bold"
+                            className="text-[10px] text-emerald-450 hover:underline font-bold"
                           >
                             Mark all read
                           </button>
@@ -478,38 +484,57 @@ export default function ClientDashboard() {
                             Your inbox is completely clear!
                           </div>
                         ) : (
-                          (viewAllNotifications ? notifications : notifications.slice(0, 5)).map((n) => (
-                            <div
-                              key={n.id}
-                              onClick={() => {
-                                if (!n.read) {
-                                  handleMarkNotificationRead(n.id);
-                                }
-                              }}
-                              className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
-                                n.read
-                                  ? 'border-slate-850 bg-slate-950/20 text-slate-400'
-                                  : 'border-emerald-500/20 bg-emerald-500/5 text-slate-200 shadow-sm'
-                              }`}
-                            >
-                              <div className="flex justify-between items-start gap-2">
-                                <h4 className="font-bold text-xs text-white">{n.title}</h4>
-                                {!n.read && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleMarkNotificationRead(n.id);
-                                    }}
-                                    className="text-[9px] font-bold text-emerald-455 hover:underline shrink-0"
-                                  >
-                                    Mark read
-                                  </button>
-                                )}
+                          (() => {
+                            const importantNotifs = notifications.filter(n => n.priority === 'important');
+                            const normalNotifs = notifications.filter(n => n.priority !== 'important');
+                            const sortedNotifs = [...importantNotifs, ...normalNotifs];
+                            const visibleNotifs = viewAllNotifications ? sortedNotifs : sortedNotifs.slice(0, 5);
+                            
+                            return visibleNotifs.map((n) => (
+                              <div
+                                key={n.id}
+                                onClick={() => {
+                                  if (!n.read) {
+                                    handleMarkNotificationRead(n.id);
+                                  }
+                                }}
+                                className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
+                                  n.read
+                                    ? 'border-slate-850 bg-slate-950/20 text-slate-450'
+                                    : n.priority === 'important'
+                                      ? 'border-rose-500/30 bg-rose-500/5 text-slate-200 shadow-sm'
+                                      : 'border-emerald-500/20 bg-emerald-500/5 text-slate-200 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex justify-between items-start gap-2">
+                                  <h4 className="font-bold text-xs text-white flex items-center gap-1">
+                                    {n.priority === 'important' && (
+                                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0 animate-pulse" />
+                                    )}
+                                    {n.title}
+                                    {n.priority === 'important' && (
+                                      <span className="bg-rose-500/20 text-rose-455 text-[8px] font-extrabold px-1 rounded">IMPORTANT</span>
+                                    )}
+                                  </h4>
+                                  {!n.read && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkNotificationRead(n.id);
+                                      }}
+                                      className={`text-[9px] font-bold hover:underline shrink-0 ${
+                                        n.priority === 'important' ? 'text-rose-400' : 'text-emerald-455'
+                                      }`}
+                                    >
+                                      Mark read
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-[11px] leading-normal text-slate-350">{n.message}</p>
+                                <span className="text-[9px] text-slate-555 block font-mono mt-0.5">{n.date}</span>
                               </div>
-                              <p className="text-[11px] leading-normal text-slate-350">{n.message}</p>
-                              <span className="text-[9px] text-slate-550 block font-mono mt-0.5">{n.date}</span>
-                            </div>
-                          ))
+                            ));
+                          })()
                         )}
                       </div>
 
@@ -550,6 +575,37 @@ export default function ClientDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Top Critical Alerts Banner */}
+      {notifications.some(n => !n.read && n.priority === 'important') && showAlarmBanner && (
+        <div className="bg-rose-500/10 border-b border-rose-500/20 text-rose-200 px-4 py-3 shadow-sm">
+          <div className="mx-auto max-w-7xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <AlertTriangle className="h-4.5 w-4.5 text-rose-500 shrink-0 animate-pulse" />
+              <span>
+                <strong>CRITICAL ALERTS DETECTED:</strong> There are outstanding payment milestones or critical items requiring your immediate review.
+              </span>
+            </div>
+            <div className="flex items-center gap-4 shrink-0">
+              <button 
+                onClick={() => {
+                  setShowNotificationsDropdown(true);
+                  setViewAllNotifications(true);
+                }} 
+                className="text-xs font-bold text-rose-400 hover:underline"
+              >
+                View Alerts
+              </button>
+              <button 
+                onClick={() => setShowAlarmBanner(false)}
+                className="text-slate-450 hover:text-white text-xs font-extrabold"
+              >
+                &times;
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         
@@ -622,6 +678,7 @@ export default function ClientDashboard() {
               { id: 'timeline', label: 'Timeline Milestones', icon: Calendar },
               { id: 'costs', label: 'Costs & Ledger', icon: IndianRupee },
               { id: 'documents', label: 'Documents Vault', icon: FileText },
+              { id: 'payments', label: 'Payment Stages', icon: CreditCard },
               { id: 'profile', label: 'Inquiries & Profile', icon: User }
             ].map((tab) => {
               const Icon = tab.icon;
@@ -1112,6 +1169,126 @@ export default function ClientDashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* TAB: PAYMENT STAGES */}
+            {activeTab === 'payments' && (
+              <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
+                <div className="border-b border-slate-800 pb-4">
+                  <h3 className="text-md font-bold text-white">Construction Payment Stages</h3>
+                  <p className="text-xs text-slate-450">Track structural completion phases and stage payments</p>
+                </div>
+
+                {/* Metrics */}
+                {(() => {
+                  const totalCost = paymentStages.reduce((sum, s) => sum + s.stageAmount, 0);
+                  const totalPaid = paymentStages.reduce((sum, s) => sum + s.paidAmount, 0);
+                  const balance = totalCost - totalPaid;
+                  const paidPercentage = totalCost > 0 ? Math.round((totalPaid / totalCost) * 100) : 0;
+
+                  return (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Total Project Cost</span>
+                          <h4 className="text-xl font-extrabold text-white mt-1.5 font-mono">₹{totalCost.toLocaleString('en-IN')}</h4>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: '100%' }} />
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                          <span className="text-[10px] uppercase font-bold text-emerald-450 tracking-wider">Total Paid Amount</span>
+                          <h4 className="text-xl font-extrabold text-emerald-400 mt-1.5 font-mono">₹{totalPaid.toLocaleString('en-IN')}</h4>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${paidPercentage}%` }} />
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4">
+                          <span className="text-[10px] uppercase font-bold text-amber-500 tracking-wider">Remaining Balance</span>
+                          <h4 className="text-xl font-extrabold text-amber-400 mt-1.5 font-mono">₹{balance.toLocaleString('en-IN')}</h4>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full mt-3 overflow-hidden">
+                            <div className="h-full bg-amber-500 rounded-full" style={{ width: `${100 - paidPercentage}%` }} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Overall Progress Bar */}
+                      <div className="bg-slate-900/30 border border-slate-850 p-4 rounded-xl space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-medium">Payment Progress</span>
+                          <span className="text-white font-extrabold font-mono">{paidPercentage}% Cleared</span>
+                        </div>
+                        <div className="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" 
+                            style={{ width: `${paidPercentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Stages List */}
+                <div className="overflow-x-auto rounded-xl border border-slate-850">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-950 border-b border-slate-850 text-slate-500 uppercase font-bold tracking-wider">
+                        <th className="py-3 px-4">Stage Details</th>
+                        <th className="py-3 px-4 text-right">Amount (₹)</th>
+                        <th className="py-3 px-4">Due Date</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Paid (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850 bg-slate-950/15">
+                      {paymentStages.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-slate-500 font-semibold">
+                            No payment stages registered by your contractor yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        paymentStages.map((s, idx) => (
+                          <tr key={s.id} className="hover:bg-slate-900/10">
+                            <td className="py-3.5 px-4 max-w-xs">
+                              <div className="font-extrabold text-white flex items-center gap-1.5">
+                                <span className="text-[10px] text-slate-550 font-mono">#{idx+1}</span>
+                                {s.stageName}
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{s.stageDescription}</p>
+                            </td>
+                            <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
+                              ₹{s.stageAmount.toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-slate-350">
+                              {s.dueDate}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase border ${
+                                s.status === 'Paid' 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                  : s.status === 'Overdue'
+                                    ? 'bg-rose-500/10 text-rose-455 border-rose-500/20 animate-pulse'
+                                    : s.status === 'Partially Paid'
+                                      ? 'bg-amber-500/10 text-amber-450 border-amber-500/20'
+                                      : 'bg-slate-805 text-slate-400 border-slate-700'
+                              }`}>
+                                {s.status}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-450">
+                              ₹{s.paidAmount.toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

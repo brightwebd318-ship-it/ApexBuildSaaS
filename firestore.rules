@@ -103,5 +103,11 @@ service cloud.firestore {
       allow read: if isLoggedIn();
       allow write: if isContractor();
     }
+
+    match /payment_stages/{stageId} {
+      allow read: if isLoggedIn();
+      allow write: if isContractor();
+    }
   }
 }
+

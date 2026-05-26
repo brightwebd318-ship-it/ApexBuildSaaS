@@ -13,7 +13,8 @@ const KEYS = {
   NOTIFICATIONS: 'cms_notifications',
   PHOTOS: 'cms_photos',
   LABOURS: 'cms_labours',
-  ATTENDANCE: 'cms_attendance'
+  ATTENDANCE: 'cms_attendance',
+  PAYMENT_STAGES: 'cms_payment_stages'
 };
 
 let emailSentCallback = () => {};
@@ -156,7 +157,8 @@ export const db = {
         message: 'Your contractor BuildSmart updated concrete curing milestones.',
         date: new Date().toLocaleString(),
         read: false,
-        target: 'client'
+        target: 'client',
+        priority: 'normal'
       },
       {
         id: 'notif_2',
@@ -167,7 +169,32 @@ export const db = {
         message: 'Contractor added grading machinery fee of ₹31,000 to budget sheet.',
         date: new Date(Date.now() - 7200000).toLocaleString(),
         read: false,
-        target: 'contractor'
+        target: 'contractor',
+        priority: 'normal'
+      },
+      {
+        id: 'notif_alarm_1',
+        projectId: 'proj_manu',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_manu',
+        title: 'PAYMENT OVERDUE ALARM',
+        message: 'Townhouse Stage 3 Payment (Structure Pillar Erection) of ₹1,50,000 is Overdue! Please clear outstanding dues immediately to avoid site layout suspension.',
+        date: new Date().toLocaleString(),
+        read: false,
+        target: 'client',
+        priority: 'important'
+      },
+      {
+        id: 'notif_alarm_2',
+        projectId: 'proj_manu',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_manu',
+        title: 'CLIENT PAYMENT OVERDUE',
+        message: 'Townhouse Stage 3 Payment from Client Manu is Overdue since 2026-05-20. Suggested action: Send a payment reminder.',
+        date: new Date().toLocaleString(),
+        read: false,
+        target: 'contractor',
+        priority: 'important'
       }
     ];
 
@@ -301,6 +328,33 @@ export const db = {
       }
     ];
 
+    // 11. Seed Payment Stages
+    const paymentStages = [
+      // stages for proj_arun (Total budget is 15,00,000 INR)
+      { id: 'stage_arun_1', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Advance Payment', stageDescription: 'Mobilization advance to initiate site marking and structural procurement.', stageAmount: 150000, dueDate: '2026-05-02', status: 'Paid', paidAmount: 150000 },
+      { id: 'stage_arun_2', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Foundation Work Completion', stageDescription: 'Excavation, steel tying, and M25 slab concrete casting completed.', stageAmount: 150000, dueDate: '2026-05-24', status: 'Paid', paidAmount: 150000 },
+      { id: 'stage_arun_3', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Structure & Pillar Framing', stageDescription: 'Erection of main vertical pillars and roof slab reinforcement.', stageAmount: 200000, dueDate: '2026-06-15', status: 'Partially Paid', paidAmount: 100000 },
+      { id: 'stage_arun_4', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Brick & Wall Work', stageDescription: 'Masonry work for external and partition walls.', stageAmount: 150000, dueDate: '2026-07-10', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_5', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Roofing & Truss Layout', stageDescription: 'Waterproofing slab treatment and roofing tile fittings.', stageAmount: 150000, dueDate: '2026-08-05', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_6', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Plastering Work', stageDescription: 'Internal and external plastering with sand face finish.', stageAmount: 150000, dueDate: '2026-09-01', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_7', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Electrical + Plumbing piping', stageDescription: 'Concealed pipeline laying and electrical wire pulling.', stageAmount: 150000, dueDate: '2026-09-25', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_8', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Flooring Work', stageDescription: 'Italian marble installation and toilet tiling.', stageAmount: 100000, dueDate: '2026-10-15', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_9', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Painting & Finishing', stageDescription: 'Wall putty preparation, primer coats, and premium emulsion paint.', stageAmount: 100000, dueDate: '2026-11-10', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_arun_10', projectId: 'proj_arun', contractorId: 'user_contractor_1', clientId: 'user_client_arun', stageName: 'Final Handover Payment', stageDescription: 'De-shuttering clearance, fittings checks, and key handover.', stageAmount: 200000, dueDate: '2026-12-15', status: 'Pending', paidAmount: 0 },
+
+      // stages for proj_manu (Total budget is 9,50,000 INR)
+      { id: 'stage_manu_1', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Advance Payment', stageDescription: 'Initial mobilization and design approval.', stageAmount: 100000, dueDate: '2026-04-15', status: 'Paid', paidAmount: 100000 },
+      { id: 'stage_manu_2', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Foundation & Framing', stageDescription: 'Excavation and initial sub-structure.', stageAmount: 100000, dueDate: '2026-05-10', status: 'Paid', paidAmount: 100000 },
+      { id: 'stage_manu_3', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Structure Pillar Erection', stageDescription: 'Framing of main townhouse levels.', stageAmount: 150000, dueDate: '2026-05-20', status: 'Overdue', paidAmount: 0 },
+      { id: 'stage_manu_4', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Masonry work', stageDescription: 'External wall panels assembly.', stageAmount: 100000, dueDate: '2026-06-20', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_5', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Roofing completion', stageDescription: 'Water protection shield installation.', stageAmount: 100000, dueDate: '2026-07-15', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_6', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Internal Plastering', stageDescription: 'Plaster walls and smooth finishes.', stageAmount: 100000, dueDate: '2026-08-10', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_7', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Plumbing & Concealed wiring', stageDescription: 'Laying distribution lines.', stageAmount: 100000, dueDate: '2026-09-05', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_8', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Flooring work', stageDescription: 'Wood paneling and stone tiles installation.', stageAmount: 70000, dueDate: '2026-09-28', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_9', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Finishing & Painting', stageDescription: 'Final coats and details.', stageAmount: 50000, dueDate: '2026-10-15', status: 'Pending', paidAmount: 0 },
+      { id: 'stage_manu_10', projectId: 'proj_manu', contractorId: 'user_contractor_1', clientId: 'user_client_manu', stageName: 'Final Handover', stageDescription: 'Site clearance and keys handoff.', stageAmount: 80000, dueDate: '2026-10-30', status: 'Pending', paidAmount: 0 }
+    ];
+
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
     localStorage.setItem(KEYS.PROJECTS, JSON.stringify(projects));
     localStorage.setItem(KEYS.UPDATES, JSON.stringify(updates));
@@ -309,6 +363,7 @@ export const db = {
     localStorage.setItem(KEYS.DOCUMENTS, JSON.stringify(documents));
     localStorage.setItem(KEYS.LABOURS, JSON.stringify(labours));
     localStorage.setItem(KEYS.ATTENDANCE, JSON.stringify(attendance));
+    localStorage.setItem(KEYS.PAYMENT_STAGES, JSON.stringify(paymentStages));
   },
 
   getData(key) {
@@ -738,5 +793,48 @@ export const db = {
   getLabourAttendance(labourId) {
     const logs = this.getData(KEYS.ATTENDANCE);
     return logs.filter(a => a.labourId === labourId).sort((a,b) => b.date.localeCompare(a.date));
+  },
+
+  getPaymentStages(projectId) {
+    const list = this.getData(KEYS.PAYMENT_STAGES);
+    return list.filter(s => s.projectId === projectId);
+  },
+
+  addPaymentStage(projectId, stageData) {
+    const list = this.getData(KEYS.PAYMENT_STAGES);
+    const newStage = {
+      id: `stage_${Date.now()}`,
+      projectId,
+      contractorId: stageData.contractorId,
+      clientId: stageData.clientId,
+      stageName: stageData.stageName,
+      stageDescription: stageData.stageDescription || '',
+      stageAmount: parseFloat(stageData.stageAmount) || 0,
+      dueDate: stageData.dueDate || new Date().toISOString().split('T')[0],
+      status: stageData.status || 'Pending',
+      paidAmount: parseFloat(stageData.paidAmount) || 0
+    };
+    list.push(newStage);
+    this.setData(KEYS.PAYMENT_STAGES, list);
+    return newStage;
+  },
+
+  updatePaymentStage(stageId, updateData) {
+    const list = this.getData(KEYS.PAYMENT_STAGES);
+    const idx = list.findIndex(s => s.id === stageId);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...updateData };
+      if (updateData.stageAmount !== undefined) list[idx].stageAmount = parseFloat(updateData.stageAmount);
+      if (updateData.paidAmount !== undefined) list[idx].paidAmount = parseFloat(updateData.paidAmount);
+      this.setData(KEYS.PAYMENT_STAGES, list);
+      return list[idx];
+    }
+    return null;
+  },
+
+  deletePaymentStage(stageId) {
+    const list = this.getData(KEYS.PAYMENT_STAGES);
+    const updated = list.filter(s => s.id !== stageId);
+    this.setData(KEYS.PAYMENT_STAGES, updated);
   }
 };
