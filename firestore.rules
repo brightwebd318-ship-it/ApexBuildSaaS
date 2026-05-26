@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is logged in
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper function to get the current user profile from users collection
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Helper function to check if logged in user is a Contractor
+    function isContractor() {
+      return isLoggedIn() && getUserData().role == 'contractor';
+    }
+
+    // Helper function to check if logged in user is a Client
+    function isClient() {
+      return isLoggedIn() && getUserData().role == 'client';
+    }
+
+    // Rules for Users collection
+    match /users/{userId} {
+      allow read: if isLoggedIn();
+      allow write: if isContractor() || (request.auth.uid == userId);
+    }
+
+    // Rules for Projects collection
+    match /projects/{projectId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+
+    // Rules for daily updates, materials, timeline, documents, and costs
+    match /daily_updates/{updateId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+    
+    match /materials/{materialId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+
+    match /timeline/{taskId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+
+    match /documents/{docId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+
+    match /costs/{costId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isContractor();
+    }
+
+    match /notifications/{notifId} {
+      allow read: if isLoggedIn() && (
+        resource.data.contractorId == request.auth.uid || 
+        resource.data.clientId == request.auth.uid
+      );
+      allow write: if isLoggedIn();
+    }
+  }
+}

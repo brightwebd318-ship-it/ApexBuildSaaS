@@ -1,0 +1,495 @@
+// LocalStorage Database Fallback for SaaS Construction Management Platform
+// File: src/services/db.js
+
+const KEYS = {
+  USERS: 'cms_users',
+  PROJECTS: 'cms_projects',
+  UPDATES: 'cms_updates',
+  TIMELINE: 'cms_timeline',
+  COSTS: 'cms_costs',
+  DOCUMENTS: 'cms_documents',
+  SESSION: 'cms_session',
+  EMAILS: 'cms_simulated_emails',
+  NOTIFICATIONS: 'cms_notifications'
+};
+
+let emailSentCallback = () => {};
+
+export const db = {
+  setEmailSentCallback(cb) {
+    emailSentCallback = cb;
+  },
+
+  init() {
+    if (!localStorage.getItem(KEYS.USERS)) {
+      this.seed();
+    }
+  },
+
+  seed() {
+    // 1. Seed Users (Contractor and Clients only, no system admin)
+    const users = [
+      {
+        id: 'user_contractor_1',
+        name: 'BuildSmart Solutions LLC',
+        email: 'contractor@gmail.com',
+        password: 'contractor123',
+        role: 'contractor',
+        phone: '+1 (555) 019-9000',
+        joinedDate: '2026-01-10'
+      },
+      {
+        id: 'user_client_arun',
+        name: 'Arun',
+        email: 'arun@gmail.com',
+        password: 'Arun@2026',
+        role: 'client',
+        phone: '+91 (555) 888-0001',
+        contractorId: 'user_contractor_1'
+      },
+      {
+        id: 'user_client_manu',
+        name: 'Manu',
+        email: 'manu@gmail.com',
+        password: 'Manu@2026',
+        role: 'client',
+        phone: '+91 (555) 888-0002',
+        contractorId: 'user_contractor_1'
+      }
+    ];
+
+    // 2. Seed Projects (One Client -> One Project)
+    const projects = [
+      {
+        id: 'proj_arun',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_arun',
+        projectName: 'Arun Villa Project',
+        siteLocation: 'Plot 45, Sector 4, Bangalore, India',
+        constructionType: 'Residential Villa',
+        budget: 150000,
+        startDate: '2026-05-01',
+        estimatedFinish: '2026-12-15',
+        status: 'Active'
+      },
+      {
+        id: 'proj_manu',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_manu',
+        projectName: 'Manu Residence',
+        siteLocation: 'Villa 12, Palm Meadows, Austin, TX',
+        constructionType: 'Modern Townhouse',
+        budget: 95000,
+        startDate: '2026-04-10',
+        estimatedFinish: '2026-10-30',
+        status: 'Active'
+      }
+    ];
+
+    // 3. Seed Daily Updates
+    const updates = [
+      {
+        id: 'upd_arun_1',
+        project_id: 'proj_arun', // maps to projectId in firebaseService
+        date: '2026-05-24',
+        labour_count: 12,
+        materials: 'Ready-mix concrete M25 grade, Steel reinforcing mesh',
+        notes: 'Work Completed: Excavation completed for pool foundation slab. Structural steel frame assembled. Concrete pouring successfully completed by evening.\nDelays: None\nRemarks: Foundation concrete is currently curing.',
+        photos: [
+          'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=800&q=80'
+        ]
+      },
+      {
+        id: 'upd_manu_1',
+        project_id: 'proj_manu',
+        date: '2026-05-25',
+        labour_count: 8,
+        materials: 'Cedar privacy panels (120 units)',
+        notes: 'Work Completed: Installed cedar privacy fencing panels along backyard boundaries.\nDelays: None\nRemarks: Began weather proofing stains.',
+        photos: [
+          'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80'
+        ]
+      }
+    ];
+
+    // 4. Seed Timelines
+    const timeline = [
+      { id: 'time_arun_1', project_id: 'proj_arun', task: 'Excavation & Ground Leveling', deadline: '2026-05-12', progress: 100, priority: 'High', status: 'Completed' },
+      { id: 'time_arun_2', project_id: 'proj_arun', task: 'Concrete Foundation Casting', deadline: '2026-05-26', progress: 100, priority: 'High', status: 'Completed' },
+      { id: 'time_arun_3', project_id: 'proj_arun', task: 'Main Pool Tiling & Plumbing Layout', deadline: '2026-07-15', progress: 15, priority: 'Medium', status: 'In Progress' },
+      { id: 'time_arun_4', project_id: 'proj_arun', task: 'Stone Deck Paving & Coping', deadline: '2026-09-10', progress: 0, priority: 'Low', status: 'Pending' },
+
+      { id: 'time_manu_1', project_id: 'proj_manu', task: 'Grading & Driveway Gravel Layout', deadline: '2026-04-25', progress: 100, priority: 'High', status: 'Completed' },
+      { id: 'time_manu_2', project_id: 'proj_manu', task: 'Cedar Privacy Fence Build', deadline: '2026-05-28', progress: 95, priority: 'Medium', status: 'In Progress' },
+      { id: 'time_manu_3', project_id: 'proj_manu', task: 'Patio Paving & Lighting installation', deadline: '2026-07-20', progress: 10, priority: 'Low', status: 'Pending' }
+    ];
+
+    // 5. Seed Costs
+    const costs = [
+      { id: 'cost_arun_1', project_id: 'proj_arun', item_name: 'Excavator & Earthmover Rental Fee', amount: 5400, category: 'Equipment', status: 'Paid', invoiceUrl: 'https://example.com/invoice.pdf' },
+      { id: 'cost_arun_2', project_id: 'proj_arun', item_name: 'Ready-mix Concrete Cast Slab', amount: 11200, category: 'Materials', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_arun_3', project_id: 'proj_arun', item_name: 'Blue Mosaic Ceramic Tiling supply', amount: 6700, category: 'Materials', status: 'Pending', invoiceUrl: '' },
+
+      { id: 'cost_manu_1', project_id: 'proj_manu', item_name: 'Cedar fence planks & posts supply', amount: 4800, category: 'Materials', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_manu_2', project_id: 'proj_manu', item_name: 'Compact gravel & grading machinery', amount: 3100, category: 'Subcontractor', status: 'Paid', invoiceUrl: '' },
+      { id: 'cost_manu_3', project_id: 'proj_manu', item_name: 'Patio Paving Blocks delivery', amount: 5900, category: 'Materials', status: 'Pending', invoiceUrl: '' }
+    ];
+
+    // 6. Seed Documents
+    const documents = [
+      { id: 'doc_arun_1', project_id: 'proj_arun', name: 'Pool_Structural_Calculations.pdf', size: '3.6 MB', type: 'Specs', date: '2026-04-28' },
+      { id: 'doc_arun_2', project_id: 'proj_arun', name: 'Bangalore_WaterPermit_NoObjection.pdf', size: '1.5 MB', type: 'Permit', date: '2026-05-02' },
+      { id: 'doc_manu_1', project_id: 'proj_manu', name: 'Zoning_Variance_Clearance.pdf', size: '1.8 MB', type: 'Permit', date: '2026-04-02' }
+    ];
+
+    // 7. Seed Notifications
+    const notifications = [
+      {
+        id: 'notif_1',
+        projectId: 'proj_arun',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_arun',
+        title: 'Project Timeline Updated',
+        message: 'Your contractor BuildSmart updated concrete curing milestones.',
+        date: new Date().toLocaleString(),
+        read: false,
+        target: 'client'
+      },
+      {
+        id: 'notif_2',
+        projectId: 'proj_arun',
+        contractorId: 'user_contractor_1',
+        clientId: 'user_client_arun',
+        title: 'Subcontractor Cost Logged',
+        message: 'Contractor added grading machinery fee of $3,100 to budget sheet.',
+        date: new Date(Date.now() - 7200000).toLocaleString(),
+        read: false,
+        target: 'contractor'
+      }
+    ];
+
+    localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+    localStorage.setItem(KEYS.PROJECTS, JSON.stringify(projects));
+    localStorage.setItem(KEYS.UPDATES, JSON.stringify(updates));
+    localStorage.setItem(KEYS.TIMELINE, JSON.stringify(timeline));
+    localStorage.setItem(KEYS.COSTS, JSON.stringify(costs));
+    localStorage.setItem(KEYS.DOCUMENTS, JSON.stringify(documents));
+    localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+    localStorage.setItem(KEYS.EMAILS, JSON.stringify([]));
+  },
+
+  getData(key) {
+    this.init();
+    return JSON.parse(localStorage.getItem(key)) || [];
+  },
+
+  setData(key, data) {
+    localStorage.setItem(key, JSON.stringify(data));
+  },
+
+  // --- Core Methods ---
+  login(email, password) {
+    const users = this.getData(KEYS.USERS);
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    if (!user) {
+      throw new Error('Invalid email or password');
+    }
+    const safeUser = { uid: user.id, ...user };
+    delete safeUser.password;
+    localStorage.setItem(KEYS.SESSION, JSON.stringify(safeUser));
+    return safeUser;
+  },
+
+  logout() {
+    localStorage.removeItem(KEYS.SESSION);
+  },
+
+  getCurrentUser() {
+    return JSON.parse(localStorage.getItem(KEYS.SESSION)) || null;
+  },
+
+  changePassword(userId, newPassword) {
+    const users = this.getData(KEYS.USERS);
+    const idx = users.findIndex(u => u.id === userId);
+    if (idx !== -1) {
+      users[idx].password = newPassword;
+      users[idx].changePasswordRequired = false;
+      this.setData(KEYS.USERS, users);
+      
+      const currentSession = this.getCurrentUser();
+      if (currentSession && currentSession.uid === userId) {
+        const safeUser = { uid: users[idx].id, ...users[idx] };
+        delete safeUser.password;
+        localStorage.setItem(KEYS.SESSION, JSON.stringify(safeUser));
+      }
+    }
+  },
+
+  getProjects(userId, role) {
+    const projects = this.getData(KEYS.PROJECTS);
+    if (role === 'contractor') {
+      return projects.filter(p => p.contractorId === userId);
+    } else if (role === 'client') {
+      return projects.filter(p => p.clientId === userId);
+    }
+    return [];
+  },
+
+  getProjectById(projectId, user) {
+    const projects = this.getData(KEYS.PROJECTS);
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return null;
+    
+    if (user.role === 'contractor' && proj.contractorId !== user.uid) return null;
+    if (user.role === 'client' && proj.clientId !== user.uid) return null;
+    return proj;
+  },
+
+  getClientsForContractor(contractorId) {
+    const projects = this.getData(KEYS.PROJECTS);
+    const clientIds = projects
+      .filter(p => p.contractorId === contractorId)
+      .map(p => p.clientId);
+    
+    const users = this.getData(KEYS.USERS);
+    return users.filter(u => u.role === 'client' && clientIds.includes(u.id));
+  },
+
+  addClientAndProject(contractorId, clientData, projectData) {
+    const users = this.getData(KEYS.USERS);
+    const projects = this.getData(KEYS.PROJECTS);
+
+    let client = users.find(u => u.email.toLowerCase() === clientData.email.toLowerCase());
+    
+    if (!client) {
+      client = {
+        id: `user_cli_${Date.now()}`,
+        name: clientData.name,
+        email: clientData.email,
+        phone: clientData.phone,
+        password: clientData.password || '',
+        role: 'client',
+        contractorId,
+        changePasswordRequired: clientData.invitationType === 'auto_gen'
+      };
+      users.push(client);
+      this.setData(KEYS.USERS, users);
+    }
+
+    const newProject = {
+      id: `proj_${Date.now()}`,
+      contractorId,
+      clientId: client.id,
+      projectName: projectData.projectName,
+      siteLocation: projectData.siteLocation,
+      constructionType: projectData.constructionType || 'Residential',
+      budget: parseFloat(projectData.budget) || 120000,
+      startDate: projectData.startDate || new Date().toISOString().split('T')[0],
+      estimatedFinish: projectData.estimatedFinish || new Date(Date.now() + 120*24*60*60*1000).toISOString().split('T')[0],
+      status: 'Active'
+    };
+
+    projects.push(newProject);
+    this.setData(KEYS.PROJECTS, projects);
+
+    // Initial timeline & cost seeds
+    const timeline = this.getData(KEYS.TIMELINE);
+    timeline.push({ id: `time_${Date.now()}_1`, project_id: newProject.id, task: 'Site Inspection & Permits Signoff', deadline: newProject.startDate, progress: 100, priority: 'High', status: 'Completed' });
+    timeline.push({ id: `time_${Date.now()}_2`, project_id: newProject.id, task: 'Structural Framing & Foundation', deadline: newProject.estimatedFinish, progress: 0, priority: 'High', status: 'Pending' });
+    this.setData(KEYS.TIMELINE, timeline);
+
+    const costs = this.getData(KEYS.COSTS);
+    costs.push({ id: `cost_${Date.now()}_1`, project_id: newProject.id, item_name: 'Initial Framing Deposit', amount: parseFloat(newProject.budget) * 0.1 || 5000, category: 'Materials', status: 'Paid' });
+    this.setData(KEYS.COSTS, costs);
+
+    // Simulated email trigger
+    const emails = this.getData(KEYS.EMAILS);
+    if (clientData.invitationType === 'email_invite') {
+      const inviteToken = `token_${Math.random().toString(36).substring(2, 9)}`;
+      const userIdx = users.findIndex(u => u.id === client.id);
+      users[userIdx].inviteToken = inviteToken;
+      this.setData(KEYS.USERS, users);
+
+      const emailObj = {
+        id: `email_${Date.now()}`,
+        to: client.email,
+        subject: `Welcome to ApexBuild SaaS Portal - Define Password`,
+        body: `Hello ${client.name},\n\nYour builder has invited you to access your project dashboard.\nProject: ${projectData.projectName}\n\nPlease click the button below to set up your account password:\n(Option A Flow)`,
+        type: 'invitation',
+        token: inviteToken,
+        clientId: client.id,
+        projectName: projectData.projectName,
+        date: new Date().toLocaleString()
+      };
+      emails.unshift(emailObj);
+      this.setData(KEYS.EMAILS, emails);
+      emailSentCallback();
+    } else {
+      const emailObj = {
+        id: `email_${Date.now()}`,
+        to: client.email,
+        subject: `Your ApexBuild SaaS Access Credentials`,
+        body: `Hello ${client.name},\n\nYour builder created your portal login.\nLogin Email: ${client.email}\nTemporary Password: ${clientData.password}\n\nPlease log in and update this temporary password immediately.`,
+        type: 'credentials',
+        clientId: client.id,
+        projectName: projectData.projectName,
+        password: clientData.password,
+        date: new Date().toLocaleString()
+      };
+      emails.unshift(emailObj);
+      this.setData(KEYS.EMAILS, emails);
+      emailSentCallback();
+    }
+
+    return { client, project: newProject };
+  },
+
+  setPasswordViaToken(token, newPassword) {
+    const users = this.getData(KEYS.USERS);
+    const userIdx = users.findIndex(u => u.inviteToken === token);
+    if (userIdx === -1) {
+      throw new Error('Invalid setup token.');
+    }
+    
+    users[userIdx].password = newPassword;
+    users[userIdx].changePasswordRequired = false;
+    delete users[userIdx].inviteToken;
+    this.setData(KEYS.USERS, users);
+    return users[userIdx];
+  },
+
+  // Daily Updates
+  getDailyUpdates(projectId) {
+    const updates = this.getData(KEYS.UPDATES);
+    return updates.filter(u => u.project_id === projectId).sort((a, b) => b.date.localeCompare(a.date));
+  },
+
+  addDailyUpdate(projectId, updateData) {
+    const updates = this.getData(KEYS.UPDATES);
+    const newUpdate = {
+      id: `upd_${Date.now()}`,
+      project_id: projectId,
+      date: updateData.date || new Date().toISOString().split('T')[0],
+      labour_count: parseInt(updateData.labour_count) || 0,
+      materials: updateData.materials || '',
+      notes: updateData.notes || '',
+      photos: updateData.photos || []
+    };
+    updates.push(newUpdate);
+    this.setData(KEYS.UPDATES, updates);
+    return newUpdate;
+  },
+
+  // Timeline
+  getTimeline(projectId) {
+    const timeline = this.getData(KEYS.TIMELINE);
+    return timeline.filter(t => t.project_id === projectId);
+  },
+
+  addTimelineTask(projectId, taskData) {
+    const timeline = this.getData(KEYS.TIMELINE);
+    const newTask = {
+      id: `time_${Date.now()}`,
+      project_id: projectId,
+      task: taskData.task,
+      deadline: taskData.deadline,
+      progress: parseInt(taskData.progress) || 0,
+      priority: taskData.priority || 'Medium',
+      status: taskData.status || 'Pending'
+    };
+    timeline.push(newTask);
+    this.setData(KEYS.TIMELINE, timeline);
+    return newTask;
+  },
+
+  updateTimelineProgress(taskId, progress) {
+    const timeline = this.getData(KEYS.TIMELINE);
+    const idx = timeline.findIndex(t => t.id === taskId);
+    if (idx !== -1) {
+      timeline[idx].progress = Math.max(0, Math.min(100, parseInt(progress)));
+      if (timeline[idx].progress === 100) {
+        timeline[idx].status = 'Completed';
+      } else if (timeline[idx].progress > 0) {
+        timeline[idx].status = 'In Progress';
+      } else {
+        timeline[idx].status = 'Pending';
+      }
+      this.setData(KEYS.TIMELINE, timeline);
+    }
+    return timeline[idx];
+  },
+
+  deleteTimelineTask(taskId) {
+    const timeline = this.getData(KEYS.TIMELINE);
+    const updated = timeline.filter(t => t.id !== taskId);
+    this.setData(KEYS.TIMELINE, updated);
+  },
+
+  // Costs
+  getCosts(projectId) {
+    const costs = this.getData(KEYS.COSTS);
+    return costs.filter(c => c.project_id === projectId);
+  },
+
+  addCostItem(projectId, costData) {
+    const costs = this.getData(KEYS.COSTS);
+    const newCost = {
+      id: `cost_${Date.now()}`,
+      project_id: projectId,
+      item_name: costData.item_name,
+      amount: parseFloat(costData.amount) || 0,
+      category: costData.category || 'Materials',
+      status: costData.status || 'Pending',
+      invoiceUrl: costData.invoiceUrl || ''
+    };
+    costs.push(newCost);
+    this.setData(KEYS.COSTS, costs);
+    return newCost;
+  },
+
+  updateCostStatus(costId, status) {
+    const costs = this.getData(KEYS.COSTS);
+    const idx = costs.findIndex(c => c.id === costId);
+    if (idx !== -1) {
+      costs[idx].status = status;
+      this.setData(KEYS.COSTS, costs);
+    }
+    return costs[idx];
+  },
+
+  deleteCostItem(costId) {
+    const costs = this.getData(KEYS.COSTS);
+    const updated = costs.filter(c => c.id !== costId);
+    this.setData(KEYS.COSTS, updated);
+  },
+
+  // Documents
+  getDocuments(projectId) {
+    const docs = this.getData(KEYS.DOCUMENTS);
+    return docs.filter(d => d.project_id === projectId);
+  },
+
+  addDocument(projectId, docData) {
+    const docs = this.getData(KEYS.DOCUMENTS);
+    const newDoc = {
+      id: `doc_${Date.now()}`,
+      project_id: projectId,
+      name: docData.name,
+      size: docData.size || '1.0 MB',
+      type: docData.type || 'Drawing',
+      date: new Date().toISOString().split('T')[0]
+    };
+    docs.push(newDoc);
+    this.setData(KEYS.DOCUMENTS, docs);
+    return newDoc;
+  },
+
+  getSimulatedEmails() {
+    return this.getData(KEYS.EMAILS);
+  },
+
+  clearSimulatedEmails() {
+    this.setData(KEYS.EMAILS, []);
+    emailSentCallback();
+  }
+};
