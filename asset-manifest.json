@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/ApexBuildSaaS/static/css/main.408486e1.css",
+    "main.js": "/ApexBuildSaaS/static/js/main.97bd15b1.js",
+    "static/js/453.6bd4553c.chunk.js": "/ApexBuildSaaS/static/js/453.6bd4553c.chunk.js",
+    "index.html": "/ApexBuildSaaS/index.html",
+    "main.408486e1.css.map": "/ApexBuildSaaS/static/css/main.408486e1.css.map",
+    "main.97bd15b1.js.map": "/ApexBuildSaaS/static/js/main.97bd15b1.js.map",
+    "453.6bd4553c.chunk.js.map": "/ApexBuildSaaS/static/js/453.6bd4553c.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.408486e1.css",
+    "static/js/main.97bd15b1.js"
+  ]
+}
