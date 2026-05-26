@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/ApexBuildSaaS/static/css/main.00a3afe0.css",
-    "main.js": "/ApexBuildSaaS/static/js/main.18e6142b.js",
+    "main.css": "/ApexBuildSaaS/static/css/main.6f0dc3d0.css",
+    "main.js": "/ApexBuildSaaS/static/js/main.9c5f2664.js",
     "static/js/453.6bd4553c.chunk.js": "/ApexBuildSaaS/static/js/453.6bd4553c.chunk.js",
     "index.html": "/ApexBuildSaaS/index.html",
-    "main.00a3afe0.css.map": "/ApexBuildSaaS/static/css/main.00a3afe0.css.map",
-    "main.18e6142b.js.map": "/ApexBuildSaaS/static/js/main.18e6142b.js.map",
+    "main.6f0dc3d0.css.map": "/ApexBuildSaaS/static/css/main.6f0dc3d0.css.map",
+    "main.9c5f2664.js.map": "/ApexBuildSaaS/static/js/main.9c5f2664.js.map",
     "453.6bd4553c.chunk.js.map": "/ApexBuildSaaS/static/js/453.6bd4553c.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.00a3afe0.css",
-    "static/js/main.18e6142b.js"
+    "static/css/main.6f0dc3d0.css",
+    "static/js/main.9c5f2664.js"
   ]
 }
