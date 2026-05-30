@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { firebaseService } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Unauthorized } from './Unauthorized';
@@ -38,6 +38,15 @@ export default function ClientDashboard() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState(null);
 
+  // Live Camera states
+  const [photoUploadMethod, setPhotoUploadMethod] = useState('file'); // 'file' or 'camera'
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState('environment');
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
+
   // Document Upload States
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState(null);
@@ -76,6 +85,89 @@ export default function ClientDashboard() {
       reader.onerror = (error) => reject(error);
     });
   };
+
+  const startCamera = async (facing = cameraFacingMode) => {
+    setCameraError('');
+    setCapturedImage(null);
+    try {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing }
+      });
+      setCameraStream(stream);
+      setCameraActive(true);
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      setCameraError("Could not access camera. Please check permissions.");
+      setCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setCameraActive(false);
+  };
+
+  const switchCamera = () => {
+    const nextFacing = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(nextFacing);
+    if (cameraActive) {
+      startCamera(nextFacing);
+    }
+  };
+
+  const capturePhoto = (vRef) => {
+    if (!vRef || !vRef.current) return;
+    const video = vRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      if (cameraFacingMode === 'user') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedImage(dataUrl);
+      stopCamera();
+    }
+  };
+
+  const retakePhoto = () => {
+    setCapturedImage(null);
+    startCamera();
+  };
+
+  // Close camera on modal close
+  useEffect(() => {
+    if (!showPhotoModal) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      setCameraActive(false);
+      setCameraStream(null);
+      setPhotoUploadMethod('file');
+      setCapturedImage(null);
+      setCameraError('');
+    }
+  }, [showPhotoModal]);
+
+  // Clean up stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
 
   const loadProjectData = async () => {
     try {
@@ -178,11 +270,17 @@ export default function ClientDashboard() {
 
   const handlePhotoUpload = async (e) => {
     e.preventDefault();
-    if (!photoFile) return;
+    if (photoUploadMethod === 'file' && !photoFile) return;
+    if (photoUploadMethod === 'camera' && !capturedImage) return;
 
     setUploadingPhoto(true);
     try {
-      const base64Url = await convertToBase64(photoFile);
+      let base64Url = '';
+      if (photoUploadMethod === 'file') {
+        base64Url = await convertToBase64(photoFile);
+      } else {
+        base64Url = capturedImage;
+      }
       const photoData = {
         uploadedBy: 'client',
         uploadedByName: currentUser.name,
@@ -210,6 +308,7 @@ export default function ClientDashboard() {
       setProgressPhotos(freshPhotos);
       setShowPhotoModal(false);
       setPhotoFile(null);
+      setCapturedImage(null);
       setPhotoCaption('');
     } catch (err) {
       console.error("Failed to upload photo:", err);
@@ -1503,19 +1602,142 @@ export default function ClientDashboard() {
 
             <form onSubmit={handlePhotoUpload} className="mt-4 space-y-4">
               <p className="text-xs text-slate-400 leading-relaxed">
-                Choose an image file from your device. It will upload as a progress milestone visible in the project photo timeline.
+                Choose an image file or take a photo using your camera. It will upload as a progress milestone visible in the project photo timeline.
               </p>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Select Image File</label>
-                <input 
-                  type="file"
-                  required
-                  accept="image/*"
-                  onChange={(e) => setPhotoFile(e.target.files[0])}
-                  className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-450 hover:file:bg-emerald-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
-                />
+              {/* Upload Method Tabs */}
+              <div className="flex border-b border-slate-800 pb-2 mb-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoUploadMethod('file');
+                    stopCamera();
+                  }}
+                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                    photoUploadMethod === 'file'
+                      ? 'border-emerald-500 text-emerald-450'
+                      : 'border-transparent text-slate-400 hover:text-slate-350'
+                  }`}
+                >
+                  Upload File
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoUploadMethod('camera');
+                    startCamera();
+                  }}
+                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                    photoUploadMethod === 'camera'
+                      ? 'border-emerald-500 text-emerald-450'
+                      : 'border-transparent text-slate-400 hover:text-slate-350'
+                  }`}
+                >
+                  Take Photo
+                </button>
               </div>
+
+              {photoUploadMethod === 'file' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Select Image File</label>
+                  <input 
+                    type="file"
+                    required
+                    accept="image/*"
+                    onChange={(e) => setPhotoFile(e.target.files[0])}
+                    className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-450 hover:file:bg-emerald-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                  />
+                </div>
+              )}
+
+              {photoUploadMethod === 'camera' && (
+                <div className="space-y-3">
+                  {cameraError && (
+                    <div className="text-xs text-rose-455 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+                      {cameraError}
+                    </div>
+                  )}
+
+                  {/* Camera Screen */}
+                  {!capturedImage ? (
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-750 bg-slate-955 flex flex-col items-center justify-center">
+                      {cameraActive ? (
+                        <>
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="h-full w-full object-cover"
+                            style={{ transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+                          />
+                          <div className="absolute top-3 left-3 bg-rose-500/80 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                            LIVE
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center p-6 space-y-3">
+                          <Camera className="h-8 w-8 text-slate-500 mx-auto" />
+                          <button
+                            type="button"
+                            onClick={() => startCamera()}
+                            className="px-3.5 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-450 border border-emerald-500/20 text-xs font-bold transition-all"
+                          >
+                            Enable Camera
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Captured Image Preview */
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-750 bg-slate-955 flex items-center justify-center">
+                      <img src={capturedImage} alt="Captured progress" className="h-full w-full object-contain" />
+                      <div className="absolute top-3 left-3 bg-emerald-500/85 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                        PREVIEW
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Camera Controls */}
+                  <div className="flex justify-center gap-3">
+                    {cameraActive && !capturedImage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => capturePhoto(videoRef)}
+                          className="flex-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Camera className="h-4 w-4" /> Capture Photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={switchCamera}
+                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                          title="Switch Camera"
+                        >
+                          Flip Camera
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-305 text-xs font-bold transition-all"
+                        >
+                          Stop
+                        </button>
+                      </>
+                    )}
+                    {capturedImage && (
+                      <button
+                        type="button"
+                        onClick={retakePhoto}
+                        className="flex-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-205 text-xs font-bold transition-all"
+                      >
+                        Retake Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1.5">Photo Caption / Description</label>
@@ -1543,7 +1765,7 @@ export default function ClientDashboard() {
                 </button>
                 <button
                   type="submit"
-                  disabled={uploadingPhoto}
+                  disabled={uploadingPhoto || (photoUploadMethod === 'file' ? !photoFile : !capturedImage)}
                   className="flex-1 rounded bg-emerald-500 py-2 text-xs font-bold text-white hover:bg-emerald-600 shadow disabled:opacity-50"
                 >
                   {uploadingPhoto ? 'Uploading...' : 'Post Photo'}

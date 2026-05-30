@@ -153,8 +153,6 @@ export const firebaseService = {
       emails.unshift(emailObj);
       mockDb.setData('cms_simulated_emails', emails);
       
-      const cb = mockDb.getData('cms_simulated_emails'); // trigger callback
-      const callbackObj = mockDb.getSimulatedEmails();
       // invoke callback if bound
       dbSentNotificationTrigger();
     }
@@ -860,26 +858,5 @@ export const firebaseService = {
 
 // Helper notification callback trigger offline
 function dbSentNotificationTrigger() {
-  const cb = mockDb.getSimulatedEmails();
-  const simulatedEmailsCallback = () => {
-    // Notify drawer callback if configured
-    const registeredCallback = mockDb.getData('cms_simulated_emails');
-  };
-  const list = mockDb.getData('cms_simulated_emails');
-  const sessionCallback = mockDb.getData('cms_users');
-  
-  // Call register hook inside db
-  const triggerHook = mockDb.getData('cms_simulated_emails');
-  
-  // Directly trigger DB's active subscriber callback
-  const dbCallback = mockDb.getSimulatedEmails();
-  // Fetch actual callback from database subscription
-  const mockDbEmails = mockDb.getData('cms_simulated_emails');
-  
-  // Force simulate callback invocation
-  try {
-    mockDb.setEmailSentCallback(() => {});
-    // Simulating callback notifications on email log registers
-    const activeEmails = mockDb.getData('cms_simulated_emails');
-  } catch (err) {}
+  mockDb.triggerEmailSentCallback();
 }

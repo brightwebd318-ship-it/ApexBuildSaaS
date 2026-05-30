@@ -24,8 +24,124 @@ export const db = {
     emailSentCallback = cb;
   },
 
+  triggerEmailSentCallback() {
+    if (typeof emailSentCallback === 'function') {
+      emailSentCallback();
+    }
+  },
+
   init() {
     if (!localStorage.getItem(KEYS.USERS)) {
+      this.seed();
+      return;
+    }
+
+    // Ensure all default users exist and have the correct credentials and projects in localStorage
+    try {
+      const users = JSON.parse(localStorage.getItem(KEYS.USERS)) || [];
+      const defaultUsers = [
+        {
+          id: 'user_contractor_1',
+          name: 'BuildSmart Solutions LLC',
+          email: 'contractor@gmail.com',
+          password: 'contractor123',
+          role: 'contractor',
+          phone: '+1 (555) 019-9000',
+          joinedDate: '2026-01-10'
+        },
+        {
+          id: 'user_client_arun',
+          name: 'Arun',
+          email: 'arun@gmail.com',
+          password: 'Arun@2026',
+          role: 'client',
+          phone: '+91 (555) 888-0001',
+          contractorId: 'user_contractor_1'
+        },
+        {
+          id: 'user_client_manu',
+          name: 'Manu',
+          email: 'manu@gmail.com',
+          password: 'Manu@2026',
+          role: 'client',
+          phone: '+91 (555) 888-0002',
+          contractorId: 'user_contractor_1'
+        }
+      ];
+
+      let usersModified = false;
+      defaultUsers.forEach(defUser => {
+        const idx = users.findIndex(u => u.email.toLowerCase() === defUser.email.toLowerCase());
+        if (idx === -1) {
+          users.push(defUser);
+          usersModified = true;
+        } else {
+          // If the password of the default user doesn't match the expected password, update it
+          if (users[idx].password !== defUser.password) {
+            users[idx].password = defUser.password;
+            usersModified = true;
+          }
+          // Ensure role matches
+          if (users[idx].role !== defUser.role) {
+            users[idx].role = defUser.role;
+            usersModified = true;
+          }
+        }
+      });
+
+      if (usersModified) {
+        localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+      }
+
+      // Also verify that projects exist for the default users
+      const projects = JSON.parse(localStorage.getItem(KEYS.PROJECTS)) || [];
+      const defaultProjects = [
+        {
+          id: 'proj_arun',
+          contractorId: 'user_contractor_1',
+          clientId: 'user_client_arun',
+          projectName: 'Arun Villa Project',
+          siteLocation: 'Plot 45, Sector 4, Bangalore, India',
+          constructionType: 'Residential Villa',
+          budget: 1500000,
+          startDate: '2026-05-01',
+          estimatedFinish: '2026-12-15',
+          status: 'Active'
+        },
+        {
+          id: 'proj_manu',
+          contractorId: 'user_contractor_1',
+          clientId: 'user_client_manu',
+          projectName: 'Manu Residence',
+          siteLocation: 'Villa 12, Palm Meadows, Austin, TX',
+          constructionType: 'Modern Townhouse',
+          budget: 950000,
+          startDate: '2026-04-10',
+          estimatedFinish: '2026-10-30',
+          status: 'Active'
+        }
+      ];
+
+      let projectsModified = false;
+      defaultProjects.forEach(defProj => {
+        const idx = projects.findIndex(p => p.id === defProj.id);
+        if (idx === -1) {
+          projects.push(defProj);
+          projectsModified = true;
+        }
+      });
+
+      if (projectsModified) {
+        localStorage.setItem(KEYS.PROJECTS, JSON.stringify(projects));
+      }
+      
+      // Also ensure that standard stages and timeline tasks for these projects are seeded
+      // if those tables are completely missing
+      if (!localStorage.getItem(KEYS.PAYMENT_STAGES)) {
+        this.seed();
+      }
+    } catch (e) {
+      console.error("Error repairing/verifying users in init, re-seeding:", e);
       this.seed();
     }
   },
