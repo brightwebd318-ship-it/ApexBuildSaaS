@@ -74,6 +74,22 @@ export default function ContractorDashboard() {
   // Notifications Dropdown
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [viewAllNotifications, setViewAllNotifications] = useState(false);
+
+  // Picture Request response states
+  const [pictureRequests, setPictureRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [showRequestDetailModal, setShowRequestDetailModal] = useState(false);
+  const [requestResponses, setRequestResponses] = useState([]);
+  const [responseNote, setResponseNote] = useState('');
+  const [responsePhotosList, setResponsePhotosList] = useState([]);
+  const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
+
+  // Proactive Contractor Updates states (Option 3)
+  const [showProactiveUpdateModal, setShowProactiveUpdateModal] = useState(false);
+  const [proactivePhotosList, setProactivePhotosList] = useState([]);
+  const [proactiveCaption, setProactiveCaption] = useState('');
+  const [proactiveCategory, setProactiveCategory] = useState('General');
+  const [isSubmittingProactive, setIsSubmittingProactive] = useState(false);
   
   // Payment Stage Management States
   const [paymentStages, setPaymentStages] = useState([]);
@@ -253,7 +269,7 @@ export default function ContractorDashboard() {
 
   // Close camera on modal close
   useEffect(() => {
-    if (!showPhotoModal) {
+    if (!showPhotoModal && !showRequestDetailModal && !showProactiveUpdateModal) {
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
       }
@@ -263,7 +279,7 @@ export default function ContractorDashboard() {
       setCapturedImage(null);
       setCameraError('');
     }
-  }, [showPhotoModal]);
+  }, [showPhotoModal, showRequestDetailModal, showProactiveUpdateModal]);
 
   // Clean up stream on unmount
   useEffect(() => {
@@ -343,6 +359,270 @@ export default function ContractorDashboard() {
     syncAllData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, selectedProjId]);
+
+  // Realtime subscription for Notifications & Picture Requests
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const userId = currentUser.uid || currentUser.id;
+    
+    const unsubscribeRequests = firebaseService.subscribePictureRequests(userId, 'contractor', (data) => {
+      setPictureRequests(data);
+    });
+    
+    const unsubscribeNotifications = firebaseService.subscribeNotifications(userId, 'contractor', (data) => {
+      setNotifications(data);
+    });
+    
+    return () => {
+      unsubscribeRequests();
+      unsubscribeNotifications();
+    };
+  }, [currentUser]);
+
+  // Realtime subscription for request photos responses
+  useEffect(() => {
+    if (!selectedRequest) {
+      setRequestResponses([]);
+      return;
+    }
+    
+    const unsubscribePhotos = firebaseService.subscribeRequestResponses(selectedRequest.id, (data) => {
+      setRequestResponses(data);
+    });
+    
+    return () => unsubscribePhotos();
+  }, [selectedRequest]);
+
+  const handleOpenRequestDetails = async (req) => {
+    setSelectedRequest(req);
+    setShowRequestDetailModal(true);
+    setResponsePhotosList([]);
+    setResponseNote('');
+    
+    // Automatically transition status to Viewed if it's currently Pending
+    if (req.status === 'Pending') {
+      try {
+        await firebaseService.updatePictureRequestStatus(req.id, 'Viewed');
+        
+        // Notify Client
+        const linkedProj = projects.find(p => p.id === req.projectId);
+        if (linkedProj) {
+          await firebaseService.addNotification(
+            req.projectId,
+            currentUser.uid,
+            req.clientId,
+            'Request Viewed By Contractor',
+            `Contractor viewed picture request: "${req.title}".`,
+            'client'
+          );
+        }
+        
+        // Update local state instantly
+        setPictureRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'Viewed' } : r));
+        setSelectedRequest(prev => prev && prev.id === req.id ? { ...prev, status: 'Viewed' } : prev);
+      } catch (err) {
+        console.error("Failed to update status to Viewed:", err);
+      }
+    }
+  };
+
+  const handleNotificationClick = async (n) => {
+    if (!n.read) {
+      await handleMarkNotificationRead(n.id);
+    }
+    
+    if (n.type === 'picture_request' && n.requestId) {
+      // Find request in existing list
+      const req = pictureRequests.find(r => r.id === n.requestId);
+      if (req) {
+        handleOpenRequestDetails(req);
+      } else {
+        try {
+          const allReqs = await firebaseService.getPictureRequests(currentUser.uid, 'contractor');
+          const found = allReqs.find(r => r.id === n.requestId);
+          if (found) {
+            handleOpenRequestDetails(found);
+          } else {
+            alert("This request details could not be found.");
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  };
+
+  const handleResponseFileChange = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    
+    const base64Promises = files.map(file => convertToBase64(file));
+    try {
+      const base64List = await Promise.all(base64Promises);
+      setResponsePhotosList(prev => [...prev, ...base64List]);
+    } catch (err) {
+      console.error("Error converting files to base64:", err);
+      alert("Failed to load some files.");
+    }
+  };
+
+  const handleAddCapturedPhotoToResponse = () => {
+    if (capturedImage) {
+      setResponsePhotosList(prev => [...prev, capturedImage]);
+      setCapturedImage(null); // Clear preview for next capture
+    }
+  };
+
+  const handleSendResponsePhotos = async (e) => {
+    e.preventDefault();
+    if (responsePhotosList.length === 0) {
+      alert("Please upload or capture at least one photo.");
+      return;
+    }
+    
+    setIsSubmittingResponse(true);
+    try {
+      const responseData = {
+        requestId: selectedRequest.id,
+        contractorId: currentUser.uid || currentUser.id,
+        imageUrls: responsePhotosList,
+        caption: responseNote,
+        uploadedAt: new Date().toISOString()
+      };
+      
+      await firebaseService.addRequestResponse(responseData);
+      await firebaseService.updatePictureRequestStatus(selectedRequest.id, 'Pictures Sent');
+      
+      // Notify Client
+      const linkedProj = projects.find(p => p.id === selectedRequest.projectId);
+      if (linkedProj) {
+        await firebaseService.addNotification(
+          selectedRequest.projectId,
+          currentUser.uid || currentUser.id,
+          selectedRequest.clientId,
+          'Contractor Responded to Request',
+          `Contractor responded to your picture request: "${selectedRequest.title}".`,
+          'client',
+          'normal',
+          { type: 'picture_request', requestId: selectedRequest.id }
+        );
+      }
+      
+      alert("Photos sent to client successfully!");
+      
+      setResponsePhotosList([]);
+      setResponseNote('');
+      setShowRequestDetailModal(false);
+      setSelectedRequest(null);
+      syncAllData();
+    } catch (err) {
+      console.error("Error submitting response photos:", err);
+      alert("Failed to upload photos. Please try again.");
+    } finally {
+      setIsSubmittingResponse(false);
+    }
+  };
+
+  const handleProactiveFileChange = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    
+    const base64Promises = files.map(file => convertToBase64(file));
+    try {
+      const base64List = await Promise.all(base64Promises);
+      setProactivePhotosList(prev => [...prev, ...base64List]);
+    } catch (err) {
+      console.error("Error converting proactive files to base64:", err);
+      alert("Failed to load some files.");
+    }
+  };
+
+  const handleAddCapturedPhotoToProactive = () => {
+    if (capturedImage) {
+      setProactivePhotosList(prev => [...prev, capturedImage]);
+      setCapturedImage(null);
+    }
+  };
+
+  const handleSendProactiveUpdate = async (e) => {
+    e.preventDefault();
+    if (proactivePhotosList.length === 0) {
+      alert("Please upload or capture at least one photo.");
+      return;
+    }
+    if (!proactiveCaption.trim()) {
+      alert("Please enter a caption.");
+      return;
+    }
+    
+    const targetProjId = selectedProjId || (projects.length > 0 ? projects[0].id : null);
+    if (!targetProjId) {
+      alert("No active project found.");
+      return;
+    }
+    
+    const activeProj = projects.find(p => p.id === targetProjId);
+    if (!activeProj) {
+      alert("Active project details could not be loaded.");
+      return;
+    }
+
+    setIsSubmittingProactive(true);
+    try {
+      // 1. Add update to contractor_updates collection
+      const updateId = await firebaseService.addContractorUpdate({
+        projectId: targetProjId,
+        contractorId: currentUser.uid || currentUser.id,
+        clientId: activeProj.clientId,
+        imageUrls: proactivePhotosList,
+        caption: proactiveCaption,
+        category: proactiveCategory,
+        createdAt: new Date().toISOString()
+      });
+
+      // 2. Add to project progress photos gallery
+      for (const img of proactivePhotosList) {
+        await firebaseService.addProgressPhoto(targetProjId, {
+          uploadedBy: 'contractor',
+          uploadedByName: currentUser.name,
+          photoUrl: img,
+          caption: proactiveCaption,
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // 3. Add to notifications
+      await firebaseService.addNotification(
+        targetProjId,
+        currentUser.uid || currentUser.id,
+        activeProj.clientId,
+        'New Progress Photos Shared',
+        `Contractor shared new progress photos: "${proactiveCaption}" under category "${proactiveCategory}".`,
+        'client',
+        'normal',
+        { type: 'contractor_update', updateId }
+      );
+
+      alert("Proactive progress update sent to client!");
+      
+      setProactivePhotosList([]);
+      setProactiveCaption('');
+      setProactiveCategory('General');
+      setShowProactiveUpdateModal(false);
+      
+      if (typeof syncAllData === 'function') {
+        syncAllData();
+      }
+    } catch (err) {
+      console.error("Error sending proactive progress photos:", err);
+      alert("Failed to send progress update. Please try again.");
+    } finally {
+      setIsSubmittingProactive(false);
+    }
+  };
 
   // Handle invitation type temporary password creation
   useEffect(() => {
@@ -1213,11 +1493,7 @@ export default function ContractorDashboard() {
                             return visibleNotifs.map((n) => (
                               <div
                                 key={n.id}
-                                onClick={() => {
-                                  if (!n.read) {
-                                    handleMarkNotificationRead(n.id);
-                                  }
-                                }}
+                                onClick={() => handleNotificationClick(n)}
                                 className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
                                   n.read
                                     ? 'border-slate-850 bg-slate-950/20 text-slate-450'
@@ -1339,6 +1615,17 @@ export default function ContractorDashboard() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
+                setProactivePhotosList([]);
+                setProactiveCaption('');
+                setProactiveCategory('General');
+                setShowProactiveUpdateModal(true);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-805 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 hover:text-emerald-300 px-3.5 py-2 text-xs font-bold transition-all"
+            >
+              <Camera className="h-4 w-4" /> Send Update Pictures
+            </button>
+            <button
+              onClick={() => {
                 setClientModalStep(1);
                 setShowClientModal(true);
               }}
@@ -1363,6 +1650,7 @@ export default function ContractorDashboard() {
             { id: 'projects', label: 'Active Projects', icon: ClipboardList },
             { id: 'updates', label: 'Daily Logs', icon: FileText },
             { id: 'photos', label: 'Timeline Photos', icon: Camera },
+            { id: 'picture-requests', label: 'Picture Requests', icon: Camera },
             { id: 'labours', label: 'Labours Directory', icon: HardHat },
             { id: 'attendance', label: 'Attendance Tracker', icon: UserCheck },
             { id: 'materials', label: 'Materials Ledger', icon: Package },
@@ -1409,6 +1697,75 @@ export default function ContractorDashboard() {
         {/* Tab Contents Renders */}
         <div className="min-h-[400px]">
           
+          {/* TAB: PICTURE REQUESTS */}
+          {activeTab === 'picture-requests' && (
+            <div className="glass-panel rounded-2xl p-6 border border-slate-800 bg-slate-900/40 space-y-6 animate-fadeIn">
+              <div className="border-b border-slate-900 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-md font-bold text-white">Clients' Photo Requests</h3>
+                  <p className="text-xs text-slate-450 mt-0.5">Manage, view, and fulfill active picture requests from your project clients</p>
+                </div>
+              </div>
+
+              {pictureRequests.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 text-xs">
+                  No picture requests received yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {pictureRequests.map((req) => {
+                    const client = allClients.find(c => c.id === req.clientId || c.uid === req.clientId);
+                    const project = projects.find(p => p.id === req.projectId);
+                    return (
+                      <div
+                        key={req.id}
+                        onClick={() => handleOpenRequestDetails(req)}
+                        className="rounded-xl border border-slate-800 bg-slate-950/20 p-5 hover:border-sky-500 hover:bg-sky-500/5 cursor-pointer transition-all space-y-4"
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <h4 className="font-extrabold text-sm text-white">{req.title}</h4>
+                            <span className="text-[10px] text-slate-400 font-mono block mt-1">Area: {req.area}</span>
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                              req.priority === 'High Priority' || req.priority === 'Urgent'
+                                ? 'bg-rose-500/10 text-rose-455 border border-rose-500/20 animate-pulse'
+                                : 'bg-slate-800 text-slate-300'
+                            }`}>
+                              {req.priority}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
+                              req.status === 'Completed'
+                                ? 'bg-emerald-500/10 text-emerald-450 border-emerald-500/20'
+                                : req.status === 'Photo Uploaded'
+                                  ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                                  : req.status === 'Viewed'
+                                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                    : 'bg-amber-500/10 text-amber-455 border-amber-500/20'
+                            }`}>
+                              {req.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-350 line-clamp-2 leading-relaxed">{req.description}</p>
+                        
+                        <div className="pt-3 border-t border-slate-900/60 flex justify-between items-center text-[10px] text-slate-500">
+                          <div>
+                            <span>Client: <strong className="text-slate-300">{client ? client.name : 'Unknown Client'}</strong></span>
+                            {project && <span className="block mt-0.5">Project: <strong className="text-sky-400">{project.projectName}</strong></span>}
+                          </div>
+                          <span className="font-mono">{new Date(req.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB 1: OVERVIEW METRICS */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
@@ -1649,12 +2006,25 @@ export default function ContractorDashboard() {
                   <h3 className="text-md font-bold text-white">Daily Site Progress Reports</h3>
                   <p className="text-xs text-slate-450">Chronological logs of labor force presence and construction notes</p>
                 </div>
-                <button
-                  onClick={() => setShowDailyUpdateModal(true)}
-                  className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition-colors"
-                >
-                  <Plus className="h-4 w-4" /> Log Daily Update
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setProactivePhotosList([]);
+                      setProactiveCaption('');
+                      setProactiveCategory('General');
+                      setShowProactiveUpdateModal(true);
+                    }}
+                    className="flex items-center gap-1 rounded border border-emerald-800 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 px-3 py-1.5 text-xs font-bold transition-all"
+                  >
+                    <Camera className="h-4 w-4" /> Send Update Pictures
+                  </button>
+                  <button
+                    onClick={() => setShowDailyUpdateModal(true)}
+                    className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition-colors"
+                  >
+                    <Plus className="h-4 w-4" /> Log Daily Update
+                  </button>
+                </div>
               </div>
 
               {allUpdates.length === 0 ? (
@@ -4035,6 +4405,303 @@ export default function ContractorDashboard() {
         </div>
       )}
 
+      {/* PHOTO REQUEST DETAIL & RESPONSE MODAL */}
+      {showRequestDetailModal && selectedRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-md">Client Photo Request</h3>
+                <span className="text-[10px] text-slate-550 font-mono">ID: {selectedRequest.id}</span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRequestDetailModal(false);
+                  setSelectedRequest(null);
+                  stopCamera();
+                }}
+                className="text-slate-400 hover:text-white font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Request Context Grid */}
+            <div className="grid grid-cols-2 gap-4 bg-slate-950/40 p-4 rounded-xl border border-slate-850 text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-slate-555 uppercase block">Client Name</span>
+                <span className="text-white font-semibold block mt-0.5">
+                  {(() => {
+                    const client = allClients.find(c => c.id === selectedRequest.clientId || c.uid === selectedRequest.clientId);
+                    return client ? client.name : 'Unknown Client';
+                  })()}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-555 uppercase block">Project Name</span>
+                <span className="text-sky-400 font-semibold block mt-0.5">
+                  {(() => {
+                    const project = projects.find(p => p.id === selectedRequest.projectId);
+                    return project ? project.projectName : 'Unknown Project';
+                  })()}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-slate-900/50">
+                <span className="text-[10px] font-bold text-slate-555 uppercase block">Area Requested</span>
+                <span className="text-white font-medium block mt-0.5">{selectedRequest.area}</span>
+              </div>
+              <div className="pt-2 border-t border-slate-900/50">
+                <span className="text-[10px] font-bold text-slate-555 uppercase block">Priority Level</span>
+                <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase inline-block mt-1 ${
+                  selectedRequest.priority === 'High Priority' || selectedRequest.priority === 'Urgent'
+                    ? 'bg-rose-500/10 text-rose-455 border border-rose-500/20'
+                    : 'bg-slate-800 text-slate-350'
+                }`}>
+                  {selectedRequest.priority}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-450 uppercase block">Request Title</span>
+              <h4 className="text-sm font-bold text-white">{selectedRequest.title}</h4>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-450 uppercase block">Description / Details</span>
+              <p className="text-xs text-slate-300 bg-slate-950/20 p-3 rounded-lg border border-slate-855 leading-relaxed">
+                {selectedRequest.description}
+              </p>
+            </div>
+
+            {/* Photo responses display if already answered */}
+            {requestResponses.length > 0 && (
+              <div className="border-t border-slate-800 pt-4 space-y-3">
+                <h5 className="text-xs font-bold text-emerald-400">Previous Responses Sent</h5>
+                {requestResponses.map(resp => (
+                  <div key={resp.id} className="p-3 bg-slate-950/30 rounded-xl border border-slate-850 space-y-2 text-xs">
+                    <div className="grid grid-cols-2 gap-2">
+                      {resp.imageUrls.map((url, idx) => (
+                        <img key={idx} src={url} alt="Sent detail" className="rounded-lg object-cover aspect-video w-full border border-slate-800" />
+                      ))}
+                    </div>
+                    {resp.caption && <p className="text-slate-300 italic">"{resp.caption}"</p>}
+                    <span className="text-[9px] text-slate-500 block font-mono">{new Date(resp.uploadedAt).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload form when not completed */}
+            {selectedRequest.status !== 'Completed' && (
+              <form onSubmit={handleSendResponsePhotos} className="border-t border-slate-800 pt-4 space-y-4">
+                <h5 className="text-xs font-bold text-white flex items-center gap-1">
+                  <Camera className="h-4 w-4 text-sky-400" /> Fulfill Photo Request
+                </h5>
+
+                {/* Tab layout to toggle live camera/gallery file selection */}
+                <div className="flex border-b border-slate-800 pb-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoUploadMethod('file');
+                      stopCamera();
+                    }}
+                    className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                      photoUploadMethod === 'file'
+                        ? 'border-sky-500 text-sky-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-350'
+                    }`}
+                  >
+                    Select From Gallery
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoUploadMethod('camera');
+                      startCamera();
+                    }}
+                    className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                      photoUploadMethod === 'camera'
+                        ? 'border-sky-500 text-sky-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-350'
+                    }`}
+                  >
+                    Take Photo Live
+                  </button>
+                </div>
+
+                {photoUploadMethod === 'file' && (
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold text-slate-300 uppercase">Upload From Gallery</label>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/png, image/jpeg, image/heic"
+                      onChange={handleResponseFileChange}
+                      className="w-full text-xs text-slate-355 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                    />
+                    <span className="text-[10px] text-slate-500 block">Allows JPG, PNG, HEIC. You can select multiple photos.</span>
+                  </div>
+                )}
+
+                {photoUploadMethod === 'camera' && (
+                  <div className="space-y-3">
+                    {cameraError && (
+                      <div className="text-xs text-rose-455 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+                        {cameraError}
+                      </div>
+                    )}
+
+                    {!capturedImage ? (
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center">
+                        {cameraActive ? (
+                          <>
+                            <video
+                              ref={videoRef}
+                              autoPlay
+                              playsInline
+                              className="h-full w-full object-cover"
+                              style={{ transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+                            />
+                            <div className="absolute top-3 left-3 bg-rose-500/80 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                              <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                              LIVE CAMERA
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-center p-6 space-y-3">
+                            <Camera className="h-8 w-8 text-slate-500 mx-auto" />
+                            <button
+                              type="button"
+                              onClick={() => startCamera()}
+                              className="px-3.5 py-1.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-bold transition-all"
+                            >
+                              Enable Camera Access
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+                        <img src={capturedImage} alt="Captured snapshot" className="h-full w-full object-contain" />
+                        <div className="absolute top-3 left-3 bg-sky-500/85 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">
+                          PREVIEW
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-center gap-3">
+                      {cameraActive && !capturedImage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => capturePhoto(videoRef)}
+                            className="flex-1 py-1.5 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Camera className="h-4 w-4" /> Capture Photo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={switchCamera}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                            title="Switch camera module"
+                          >
+                            Flip
+                          </button>
+                          <button
+                            type="button"
+                            onClick={stopCamera}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-350 text-xs font-bold transition-all"
+                          >
+                            Stop
+                          </button>
+                        </>
+                      )}
+                      {capturedImage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleAddCapturedPhotoToResponse}
+                            className="flex-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all"
+                          >
+                            Add Captured Photo to List
+                          </button>
+                          <button
+                            type="button"
+                            onClick={retakePhoto}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                          >
+                            Retake
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview of images in response queue */}
+                {responsePhotosList.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Selected Photos Queue ({responsePhotosList.length})</span>
+                    <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto bg-slate-950/20 p-2 rounded-lg border border-slate-850">
+                      {responsePhotosList.map((src, idx) => (
+                        <div key={idx} className="relative aspect-video rounded overflow-hidden border border-slate-805 bg-slate-950 group">
+                          <img src={src} alt="Preview thumbnail" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setResponsePhotosList(prev => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 bg-red-500/80 hover:bg-red-600 rounded-full h-4.5 w-4.5 text-white flex items-center justify-center text-[9px] font-bold transition-colors"
+                            title="Remove photo"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-slate-355 uppercase">Response Note / Remarks</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Kitchen ceiling drywall work completed."
+                    value={responseNote}
+                    onChange={(e) => setResponseNote(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRequestDetailModal(false);
+                      setSelectedRequest(null);
+                      setResponsePhotosList([]);
+                      setResponseNote('');
+                      stopCamera();
+                    }}
+                    className="flex-1 rounded border border-slate-800 bg-slate-900 py-2.5 text-xs font-bold text-slate-300 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingResponse || responsePhotosList.length === 0}
+                    className="flex-1 rounded bg-sky-500 py-2.5 text-xs font-bold text-white hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-lg"
+                  >
+                    {isSubmittingResponse ? 'Sending...' : 'Send Pictures To Client'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* LIGHTBOX FOR PHOTO PREVIEWS */}
       {activeLightboxPhoto && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/95 p-4 backdrop-blur-md">
@@ -4074,6 +4741,252 @@ export default function ContractorDashboard() {
                 <Download className="h-4 w-4" /> Download Photo
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PROACTIVE PHOTO UPDATE (OPTION 3) */}
+      {showProactiveUpdateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-md">Send Progress Photos Directly</h3>
+                <p className="text-[10px] text-slate-450 mt-0.5">Share site updates directly to client feed anytime</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowProactiveUpdateModal(false);
+                  setProactivePhotosList([]);
+                  setProactiveCaption('');
+                  setProactiveCategory('General');
+                  stopCamera();
+                }}
+                className="text-slate-400 hover:text-white font-bold text-lg"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSendProactiveUpdate} className="space-y-4">
+              {/* Category selector */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Update Category / Area</label>
+                <select
+                  value={proactiveCategory}
+                  onChange={(e) => setProactiveCategory(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                >
+                  <option value="General">General Update</option>
+                  <option value="Foundation">Foundation</option>
+                  <option value="Kitchen">Kitchen</option>
+                  <option value="Roof">Roof</option>
+                  <option value="Exterior">Exterior</option>
+                  <option value="Site Entrance">Site Entrance</option>
+                  <option value="Bedroom">Bedroom</option>
+                  <option value="Living Room">Living Room</option>
+                  <option value="Bathroom">Bathroom</option>
+                </select>
+              </div>
+
+              {/* Tab Selector */}
+              <div className="flex border-b border-slate-800 pb-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoUploadMethod('file');
+                    stopCamera();
+                  }}
+                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                    photoUploadMethod === 'file'
+                      ? 'border-sky-500 text-sky-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-350'
+                  }`}
+                >
+                  Choose From Gallery
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotoUploadMethod('camera');
+                    startCamera();
+                  }}
+                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                    photoUploadMethod === 'camera'
+                      ? 'border-sky-500 text-sky-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-350'
+                  }`}
+                >
+                  Take Picture Live
+                </button>
+              </div>
+
+              {photoUploadMethod === 'file' && (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold text-slate-350 uppercase">Select Images</label>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/png, image/jpeg, image/heic, image/webp"
+                    onChange={handleProactiveFileChange}
+                    className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                  />
+                  <span className="text-[10px] text-slate-500 block">Allows JPG, PNG, HEIC, WEBP. Select multiple if needed.</span>
+                </div>
+              )}
+
+              {photoUploadMethod === 'camera' && (
+                <div className="space-y-3">
+                  {cameraError && (
+                    <div className="text-xs text-rose-455 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+                      {cameraError}
+                    </div>
+                  )}
+
+                  {!capturedImage ? (
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center">
+                      {cameraActive ? (
+                        <>
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="h-full w-full object-cover"
+                            style={{ transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+                          />
+                          <div className="absolute top-3 left-3 bg-rose-500/80 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                            LIVE CAMERA
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center p-6 space-y-3">
+                          <Camera className="h-8 w-8 text-slate-500 mx-auto" />
+                          <button
+                            type="button"
+                            onClick={() => startCamera()}
+                            className="px-3.5 py-1.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-bold transition-all"
+                          >
+                            Enable Camera
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+                      <img src={capturedImage} alt="Live preview" className="h-full w-full object-contain" />
+                      <div className="absolute top-3 left-3 bg-sky-500/85 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">
+                        PREVIEW
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-center gap-3">
+                    {cameraActive && !capturedImage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => capturePhoto(videoRef)}
+                          className="flex-1 py-1.5 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Camera className="h-4 w-4" /> Capture Photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={switchCamera}
+                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                        >
+                          Flip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopCamera}
+                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-350 text-xs font-bold transition-all"
+                        >
+                          Stop
+                        </button>
+                      </>
+                    )}
+                    {capturedImage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleAddCapturedPhotoToProactive}
+                          className="flex-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all"
+                        >
+                          Add to Upload List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={retakePhoto}
+                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                        >
+                          Retake
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Uploads list previews */}
+              {proactivePhotosList.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Selected Photos ({proactivePhotosList.length})</span>
+                  <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto bg-slate-950/20 p-2 rounded-lg border border-slate-850">
+                    {proactivePhotosList.map((src, idx) => (
+                      <div key={idx} className="relative aspect-video rounded overflow-hidden border border-slate-800 bg-slate-950 group">
+                        <img src={src} alt="Thumbnail preview" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setProactivePhotosList(prev => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1 right-1 bg-red-500/80 hover:bg-red-600 rounded-full h-4.5 w-4.5 text-white flex items-center justify-center text-[9px] font-bold transition-colors"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Caption field */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-355 uppercase mb-1.5">Caption Note</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Today's slab concrete work completed."
+                  value={proactiveCaption}
+                  onChange={(e) => setProactiveCaption(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              {/* Action buttons */}
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProactiveUpdateModal(false);
+                    setProactivePhotosList([]);
+                    setProactiveCaption('');
+                    setProactiveCategory('General');
+                    stopCamera();
+                  }}
+                  className="flex-1 rounded border border-slate-800 bg-slate-900 py-2.5 text-xs font-bold text-slate-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingProactive || proactivePhotosList.length === 0}
+                  className="flex-1 rounded bg-sky-500 py-2.5 text-xs font-bold text-white hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-lg"
+                >
+                  {isSubmittingProactive ? 'Sending...' : 'SEND TO CLIENT'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

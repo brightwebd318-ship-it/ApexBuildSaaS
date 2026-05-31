@@ -66,6 +66,23 @@ export default function ClientDashboard() {
   const [inquirySuccess, setInquirySuccess] = useState(false);
   const [inquiryError, setInquiryError] = useState('');
 
+  // Picture Request System states
+  const [pictureRequests, setPictureRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [requestResponses, setRequestResponses] = useState([]);
+  const [reqTitle, setReqTitle] = useState('');
+  const [reqDesc, setReqDesc] = useState('');
+  const [reqPriority, setReqPriority] = useState('Normal');
+  const [reqArea, setReqArea] = useState('Kitchen');
+  const [reqCustomArea, setReqCustomArea] = useState('');
+  const [reqSpecialNote, setReqSpecialNote] = useState('');
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [requestSuccess, setRequestSuccess] = useState(false);
+  const [contractorUpdates, setContractorUpdates] = useState([]);
+  const [photoViewerData, setPhotoViewerData] = useState(null);
+  const [viewerSliderIndex, setViewerSliderIndex] = useState(0);
+  const [viewerZoom, setViewerZoom] = useState(1);
+
   // Document tree expand/collapse states
   const [expandedFolders, setExpandedFolders] = useState({
     '2D Drawings': true,
@@ -223,6 +240,122 @@ export default function ClientDashboard() {
       loadProjectData();
     }
   }, [currentUser]);
+
+  // Realtime subscription for Notifications, Picture Requests & Proactive Updates
+  useEffect(() => {
+    if (!currentUser || !project) return;
+    
+    const userId = currentUser.uid || currentUser.id;
+    
+    const unsubscribeRequests = firebaseService.subscribePictureRequests(userId, 'client', (data) => {
+      setPictureRequests(data);
+    });
+    
+    const unsubscribeNotifications = firebaseService.subscribeNotifications(userId, 'client', (data) => {
+      setNotifications(data);
+    });
+
+    const unsubscribeContractorUpdates = firebaseService.subscribeContractorUpdates(project.id, (data) => {
+      setContractorUpdates(data);
+    });
+    
+    return () => {
+      unsubscribeRequests();
+      unsubscribeNotifications();
+      unsubscribeContractorUpdates();
+    };
+  }, [currentUser, project]);
+
+  // Realtime subscription for selected picture request photos
+  useEffect(() => {
+    if (!selectedRequest) {
+      setRequestResponses([]);
+      return;
+    }
+    
+    const unsubscribeResponses = firebaseService.subscribeRequestResponses(selectedRequest.id, (data) => {
+      setRequestResponses(data);
+    });
+    
+    return () => unsubscribeResponses();
+  }, [selectedRequest]);
+
+  const handleSendPhotoRequest = async (e) => {
+    e.preventDefault();
+    if (!reqTitle.trim() || !reqDesc.trim()) return;
+
+    setIsSubmittingRequest(true);
+    setRequestSuccess(false);
+
+    try {
+      const selectedArea = reqArea === 'Custom Area' ? reqCustomArea : reqArea;
+      
+      const newRequest = {
+        projectId: project.id,
+        clientId: currentUser.uid || currentUser.id,
+        contractorId: project.contractorId,
+        title: reqTitle,
+        description: reqDesc,
+        area: selectedArea,
+        priority: reqPriority,
+        specialNote: reqSpecialNote,
+        status: 'Pending'
+      };
+
+      const requestId = await firebaseService.addPictureRequest(newRequest);
+
+      // Trigger realtime notification to Contractor
+      await firebaseService.addNotification(
+        project.id,
+        project.contractorId,
+        currentUser.uid || currentUser.id,
+        'Site Picture Requested',
+        `Client ${currentUser.name} requested site pictures — ${selectedArea} Area.`,
+        'contractor',
+        'normal',
+        { type: 'picture_request', requestId }
+      );
+
+      setRequestSuccess(true);
+      setReqTitle('');
+      setReqDesc('');
+      setReqPriority('Normal');
+      setReqArea('Kitchen');
+      setReqCustomArea('');
+      setReqSpecialNote('');
+
+      setTimeout(() => setRequestSuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to submit picture request:", err);
+      alert("Failed to submit request. Please try again.");
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleMarkRequestCompleted = async (requestId) => {
+    try {
+      await firebaseService.updatePictureRequestStatus(requestId, 'Completed');
+      
+      // Update local request status
+      setSelectedRequest(prev => prev && prev.id === requestId ? { ...prev, status: 'Completed' } : prev);
+
+      // Notify Contractor
+      await firebaseService.addNotification(
+        project.id,
+        project.contractorId,
+        currentUser.uid || currentUser.id,
+        'Picture Request Resolved',
+        `Client ${currentUser.name} marked picture request as reviewed and Completed.`,
+        'contractor'
+      );
+      
+      alert("Ticket closed and marked as completed!");
+    } catch (err) {
+      console.error("Error closing picture request:", err);
+      alert("Error closing ticket. Please try again.");
+    }
+  };
 
   if (loading) {
     return (
@@ -404,6 +537,103 @@ export default function ClientDashboard() {
     }
   };
 
+  const handleNotificationClick = async (n) => {
+    if (!n.read) {
+      await handleMarkNotificationRead(n.id);
+    }
+    
+    if (n.type === 'picture_request' && n.requestId) {
+      const req = pictureRequests.find(r => r.id === n.requestId);
+      if (req) {
+        setSelectedRequest(req);
+        setActiveTab('request-picture');
+        
+        try {
+          const resps = await firebaseService.getRequestResponses(req.id);
+          if (resps.length > 0) {
+            setPhotoViewerData({
+              id: req.id,
+              requestId: req.id,
+              title: req.title,
+              area: req.area,
+              priority: req.priority,
+              caption: resps[0].caption || resps[0].note || 'Requested site photo',
+              imageUrls: resps[0].imageUrls,
+              uploadedAt: resps[0].uploadedAt,
+              status: req.status
+            });
+            setViewerSliderIndex(0);
+            setViewerZoom(1);
+          }
+        } catch (e) {
+          console.error("Error fetching responses for notification request:", e);
+        }
+      } else {
+        try {
+          const allReqs = await firebaseService.getPictureRequests(currentUser.uid || currentUser.id, 'client');
+          const found = allReqs.find(r => r.id === n.requestId);
+          if (found) {
+            setSelectedRequest(found);
+            setActiveTab('request-picture');
+            const resps = await firebaseService.getRequestResponses(found.id);
+            if (resps.length > 0) {
+              setPhotoViewerData({
+                id: found.id,
+                requestId: found.id,
+                title: found.title,
+                area: found.area,
+                priority: found.priority,
+                caption: resps[0].caption || resps[0].note || 'Requested site photo',
+                imageUrls: resps[0].imageUrls,
+                uploadedAt: resps[0].uploadedAt,
+                status: found.status
+              });
+              setViewerSliderIndex(0);
+              setViewerZoom(1);
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    } else if (n.type === 'contractor_update' && n.updateId) {
+      const upd = contractorUpdates.find(u => u.id === n.updateId);
+      if (upd) {
+        setPhotoViewerData({
+          id: upd.id,
+          title: 'Contractor Progress Update',
+          category: upd.category,
+          caption: upd.caption,
+          imageUrls: upd.imageUrls,
+          uploadedAt: upd.createdAt
+        });
+        setViewerSliderIndex(0);
+        setViewerZoom(1);
+        setActiveTab('photos');
+      } else {
+        try {
+          const allUpds = await firebaseService.getContractorUpdates(project.id);
+          const found = allUpds.find(u => u.id === n.updateId);
+          if (found) {
+            setPhotoViewerData({
+              id: found.id,
+              title: 'Contractor Progress Update',
+              category: found.category,
+              caption: found.caption,
+              imageUrls: found.imageUrls,
+              uploadedAt: found.createdAt
+            });
+            setViewerSliderIndex(0);
+            setViewerZoom(1);
+            setActiveTab('photos');
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  };
+
   const handleMarkAllRead = async () => {
     try {
       const unread = notifications.filter(n => !n.read);
@@ -503,6 +733,35 @@ export default function ClientDashboard() {
     document.body.removeChild(link);
   };
 
+  const combinedPhotosFeed = [
+    ...progressPhotos.map(p => ({
+      ...p,
+      feedType: 'progress_photo',
+      sortTimestamp: p.timestamp || p.date + 'T' + p.time
+    })),
+    ...contractorUpdates.map(u => ({
+      ...u,
+      feedType: 'contractor_update',
+      uploadedBy: 'contractor',
+      uploadedByName: 'BuildSmart Solutions LLC',
+      photoUrl: u.imageUrls?.[0] || '',
+      sortTimestamp: u.createdAt
+    }))
+  ].sort((a, b) => b.sortTimestamp.localeCompare(a.sortTimestamp));
+
+  const combinedActivityFeed = [
+    ...updates.map(u => ({
+      ...u,
+      feedType: 'daily_log',
+      sortTimestamp: u.date + 'T00:00:00.000Z'
+    })),
+    ...contractorUpdates.map(u => ({
+      ...u,
+      feedType: 'contractor_update',
+      sortTimestamp: u.createdAt
+    }))
+  ].sort((a, b) => b.sortTimestamp.localeCompare(a.sortTimestamp));
+
   return (
     <div className="min-h-screen bg-slate-950 dark:bg-slate-950 text-slate-100 pb-16 transition-colors duration-300 relative">
       {/* Header */}
@@ -593,9 +852,7 @@ export default function ClientDashboard() {
                               <div
                                 key={n.id}
                                 onClick={() => {
-                                  if (!n.read) {
-                                    handleMarkNotificationRead(n.id);
-                                  }
+                                  handleNotificationClick(n);
                                 }}
                                 className={`rounded-lg border p-3 flex flex-col gap-1 transition-all cursor-pointer relative hover:border-slate-800 ${
                                   n.read
@@ -774,6 +1031,7 @@ export default function ClientDashboard() {
             {[
               { id: 'progress', label: 'Daily Logs', icon: Activity },
               { id: 'photos', label: 'Timeline Photos', icon: Camera },
+              { id: 'request-picture', label: 'Picture Requests', icon: Camera },
               { id: 'timeline', label: 'Timeline Milestones', icon: Calendar },
               { id: 'costs', label: 'Costs & Ledger', icon: IndianRupee },
               { id: 'documents', label: 'Documents Vault', icon: FileText },
@@ -802,6 +1060,328 @@ export default function ClientDashboard() {
           {/* Render Tab Contents */}
           <div className="min-h-[300px]">
             
+            {/* Request Picture Tab */}
+            {activeTab === 'request-picture' && (
+              <div className="space-y-6 animate-fadeIn">
+                <div className="border-b border-slate-900 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-md font-bold text-white">Request Construction Photos</h3>
+                    <p className="text-xs text-slate-450 mt-0.5">Request live construction site photos from your contractor for verification</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* Left: Send Request Form */}
+                  <div className="lg:col-span-5">
+                    <div className="glass-panel rounded-2xl p-6 border border-slate-800 bg-slate-900/40 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-slate-850 pb-3">
+                        <Camera className="h-5 w-5 text-emerald-450" />
+                        <h4 className="font-bold text-white text-sm">Create Photo Request</h4>
+                      </div>
+
+                      <form onSubmit={handleSendPhotoRequest} className="space-y-4">
+                        {requestSuccess && (
+                          <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-400">
+                            <CheckCircle className="h-4 w-4 shrink-0" />
+                            <span>Request sent successfully! Your builder was notified.</span>
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Request Title</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Kitchen ceiling framing"
+                            value={reqTitle}
+                            onChange={(e) => setReqTitle(e.target.value)}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Request Description</label>
+                          <textarea
+                            rows={3}
+                            required
+                            placeholder="Detail what you need to see, e.g. Need updated kitchen ceiling work photos to check electrical wire routing..."
+                            value={reqDesc}
+                            onChange={(e) => setReqDesc(e.target.value)}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Priority Level</label>
+                            <select
+                              value={reqPriority}
+                              onChange={(e) => setReqPriority(e.target.value)}
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                            >
+                              <option value="Normal">Normal</option>
+                              <option value="Urgent">Urgent</option>
+                              <option value="High Priority">High Priority</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Area Selection</label>
+                            <select
+                              value={reqArea}
+                              onChange={(e) => setReqArea(e.target.value)}
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                            >
+                              <option value="Kitchen">Kitchen</option>
+                              <option value="Bedroom">Bedroom</option>
+                              <option value="Living Room">Living Room</option>
+                              <option value="Bathroom">Bathroom</option>
+                              <option value="Roof">Roof</option>
+                              <option value="Foundation">Foundation</option>
+                              <option value="Exterior">Exterior</option>
+                              <option value="Site Entrance">Site Entrance</option>
+                              <option value="Custom Area">Custom Area</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {reqArea === 'Custom Area' && (
+                          <div className="animate-slideDown">
+                            <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Custom Area Name</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Basement stairs"
+                              value={reqCustomArea}
+                              onChange={(e) => setReqCustomArea(e.target.value)}
+                              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                            />
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Special Note</label>
+                          <textarea
+                            rows={2}
+                            placeholder="e.g. Ensure electrical wires are visible in the photo."
+                            value={reqSpecialNote}
+                            onChange={(e) => setReqSpecialNote(e.target.value)}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={isSubmittingRequest}
+                            className="flex items-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition-all disabled:opacity-50"
+                          >
+                            <Send className="h-3.5 w-3.5" /> {isSubmittingRequest ? 'Sending...' : 'SEND REQUEST'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+
+                  {/* Right: Request History and Details */}
+                  <div className="lg:col-span-7 space-y-6">
+                    <div className="glass-panel rounded-2xl p-6 border border-slate-800 bg-slate-900/40">
+                      <div className="border-b border-slate-850 pb-3 mb-4">
+                        <h4 className="font-bold text-white text-sm">Requests History</h4>
+                      </div>
+
+                      {pictureRequests.length === 0 ? (
+                        <div className="text-center py-12 text-slate-500 text-xs">
+                          No picture requests submitted yet.
+                        </div>
+                      ) : (
+                        <div className="space-y-3.5 max-h-[480px] overflow-y-auto pr-1">
+                          {pictureRequests.map((req) => {
+                            const isSelected = selectedRequest?.id === req.id;
+                            return (
+                              <div
+                                key={req.id}
+                                onClick={() => setSelectedRequest(req)}
+                                className={`rounded-xl border p-4 transition-all cursor-pointer ${
+                                  isSelected
+                                    ? 'border-emerald-500 bg-emerald-500/5'
+                                    : 'border-slate-800 bg-slate-950/20 hover:border-slate-750'
+                                }`}
+                              >
+                                <div className="flex justify-between items-start gap-2">
+                                  <div>
+                                    <h5 className="font-bold text-xs text-white">{req.title}</h5>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Area: {req.area}</p>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-1.5">
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                                      req.priority === 'High Priority' || req.priority === 'Urgent'
+                                        ? 'bg-rose-500/10 text-rose-455 border border-rose-500/20'
+                                        : 'bg-slate-800 text-slate-300'
+                                    }`}>
+                                      {req.priority}
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                                      req.status === 'Completed'
+                                        ? 'bg-emerald-500/10 text-emerald-450 border border-emerald-500/20'
+                                        : req.status === 'Photo Uploaded'
+                                          ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                                          : req.status === 'Viewed'
+                                            ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                                            : 'bg-amber-500/10 text-amber-455 border border-amber-500/20'
+                                    }`}>
+                                      {req.status}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-slate-350 line-clamp-1 mt-2">{req.description}</p>
+                                <span className="text-[9px] text-slate-555 block font-mono mt-1.5">{new Date(req.createdAt).toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Active Selected Request Timeline & Photo Responses */}
+                    {selectedRequest && (
+                      <div className="glass-panel rounded-2xl p-6 border border-slate-800 bg-slate-900/40 space-y-6 animate-slideDown">
+                        <div className="flex justify-between items-center border-b border-slate-850 pb-3">
+                          <div>
+                            <h4 className="font-bold text-white text-sm">{selectedRequest.title}</h4>
+                            <p className="text-[10px] text-slate-400">Detailed Status Timeline</p>
+                          </div>
+                          <button
+                            onClick={() => setSelectedRequest(null)}
+                            className="text-xs font-bold text-slate-455 hover:text-white"
+                          >
+                            Close Details
+                          </button>
+                        </div>
+
+                        {/* Request Timeline */}
+                        <div className="grid grid-cols-5 gap-2 relative py-4">
+                          {/* Progress Line */}
+                          <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-800 -translate-y-1/2 z-0" />
+                          {(() => {
+                            const steps = [
+                              { key: 'Pending', label: 'Pending' },
+                              { key: 'Viewed', label: 'Viewed' },
+                              { key: 'In Progress', label: 'In Progress' },
+                              { key: 'Pictures Sent', label: 'Pictures Sent' },
+                              { key: 'Completed', label: 'Completed' }
+                            ];
+                            const currentIdx = steps.findIndex(s => s.key === selectedRequest.status);
+                            
+                            return steps.map((step, idx) => {
+                              const isDone = idx <= currentIdx;
+                              const isCurrent = idx === currentIdx;
+                              return (
+                                <div key={step.key} className="flex flex-col items-center z-10 text-center space-y-2">
+                                  <div className={`h-6 w-6 rounded-full flex items-center justify-center border text-[10px] font-bold ${
+                                    isDone
+                                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                                      : 'bg-slate-950 border-slate-800 text-slate-500'
+                                  } ${isCurrent ? 'ring-4 ring-emerald-500/20 scale-110' : ''}`}>
+                                    {idx + 1}
+                                  </div>
+                                  <span className={`text-[9px] font-bold ${isDone ? 'text-white' : 'text-slate-500'}`}>
+                                    {step.label}
+                                  </span>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+
+                        {/* Description Details */}
+                        <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-850 text-xs space-y-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Description</span>
+                            <span className="text-slate-300 mt-1 block leading-relaxed">{selectedRequest.description}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-900/50 text-[10px] text-slate-400">
+                            <span>Area: <strong className="text-slate-200">{selectedRequest.area}</strong></span>
+                            <span>Priority: <strong className="text-slate-200">{selectedRequest.priority}</strong></span>
+                          </div>
+                        </div>
+                        {/* Photo Responses Details */}
+                        {requestResponses.length > 0 ? (
+                          <div className="space-y-4">
+                            <div className="border-t border-slate-850 pt-4">
+                              <h5 className="text-xs font-bold text-white mb-3">Photos Received</h5>
+                              {requestResponses.map((resp) => (
+                                <div key={resp.id} className="space-y-3">
+                                  <div className="flex justify-between items-center text-[10px] text-slate-455">
+                                    <span>Uploaded By: <strong className="text-slate-200">Contractor</strong></span>
+                                    <span>Time: {new Date(resp.uploadedAt).toLocaleString()}</span>
+                                  </div>
+
+                                  {/* Photo Carousel Slider */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {resp.imageUrls.map((url, imgIdx) => (
+                                      <div
+                                        key={imgIdx}
+                                        onClick={() => {
+                                          setPhotoViewerData({
+                                            id: selectedRequest.id,
+                                            requestId: selectedRequest.id,
+                                            title: selectedRequest.title,
+                                            area: selectedRequest.area,
+                                            priority: selectedRequest.priority,
+                                            caption: resp.caption || resp.note || 'Requested site photo',
+                                            imageUrls: resp.imageUrls,
+                                            uploadedAt: resp.uploadedAt,
+                                            status: selectedRequest.status
+                                          });
+                                          setViewerSliderIndex(imgIdx);
+                                          setViewerZoom(1);
+                                        }}
+                                        className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group cursor-pointer"
+                                      >
+                                        <img src={url} alt="Contractor response" className="h-full w-full object-contain" />
+                                        <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <Maximize2 className="h-5 w-5 text-white" />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {resp.caption && (
+                                    <div className="bg-slate-950/20 p-3 rounded-lg border border-slate-850/60 text-xs italic text-slate-355">
+                                      "{resp.caption}"
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Mark reviewed action */}
+                            {selectedRequest.status === 'Pictures Sent' && (
+                              <button
+                                onClick={() => handleMarkRequestCompleted(selectedRequest.id)}
+                                className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 py-2.5 text-xs font-bold text-white transition-all shadow-md"
+                              >
+                                <CheckCircle className="h-4 w-4" /> Mark as Reviewed & Close Ticket
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="border-t border-slate-850 pt-4 text-center py-6 text-slate-500 text-xs">
+                            {selectedRequest.status === 'Viewed' ? (
+                              <span>Contractor has viewed your request and is preparing the photos.</span>
+                            ) : (
+                              <span>Waiting for contractor response.</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 1. Progress Tab */}
             {activeTab === 'progress' && (
               <div className="space-y-6">
@@ -812,54 +1392,119 @@ export default function ClientDashboard() {
                   </div>
                 </div>
 
-                {updates.length === 0 ? (
+                {combinedActivityFeed.length === 0 ? (
                   <div className="glass-panel rounded-xl p-8 text-center text-slate-500">
-                    No daily updates have been posted yet.
+                    No daily updates or activity have been posted yet.
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {updates.map((upd) => (
-                      <div key={upd.id} className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-900 pb-3.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-md">Daily Log</span>
-                            <span className="text-slate-555">•</span>
-                            <span className="text-xs font-semibold text-slate-400">{upd.date}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded">
-                              Labor Count: {upd.labour_count || upd.labourCount || 0}
-                            </span>
-                            {upd.materials && (
-                              <span className="text-xs font-semibold text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded hidden sm:inline-block max-w-[200px] truncate" title={upd.materials}>
-                                Materials: {upd.materials}
-                              </span>
+                    {combinedActivityFeed.map((item) => {
+                      if (item.feedType === 'daily_log') {
+                        return (
+                          <div key={item.id} className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-900 pb-3.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white text-md">Daily Log</span>
+                                <span className="text-slate-555">•</span>
+                                <span className="text-xs font-semibold text-slate-400">{item.date}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-semibold text-emerald-450 bg-emerald-500/10 px-2.5 py-1 rounded">
+                                  Labor Count: {item.labour_count || item.labourCount || 0}
+                                </span>
+                                {item.materials && (
+                                  <span className="text-xs font-semibold text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded hidden sm:inline-block max-w-[200px] truncate" title={item.materials}>
+                                    Materials: {item.materials}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="text-sm leading-relaxed text-slate-300">
+                              <p className="whitespace-pre-line">{item.notes}</p>
+                            </div>
+
+                            {item.photos && item.photos.length > 0 && (
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-900">
+                                {item.photos.map((ph, index) => (
+                                  <div 
+                                    key={index} 
+                                    className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 group cursor-pointer"
+                                    onClick={() => {
+                                      setPhotoViewerData({
+                                        id: item.id,
+                                        title: 'Daily Log Photo',
+                                        caption: 'Daily site update attachment',
+                                        imageUrls: item.photos,
+                                        uploadedAt: item.date + 'T12:00:00.000Z'
+                                      });
+                                      setViewerSliderIndex(index);
+                                      setViewerZoom(1);
+                                    }}
+                                  >
+                                    <img src={ph} alt="Progress detail" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                    <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <Maximize2 className="h-5 w-5 text-white drop-shadow" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             )}
                           </div>
-                        </div>
-
-                        <div className="text-sm leading-relaxed text-slate-300">
-                          <p className="whitespace-pre-line">{upd.notes}</p>
-                        </div>
-
-                        {upd.photos && upd.photos.length > 0 && (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-900">
-                            {upd.photos.map((ph, index) => (
-                              <div 
-                                key={index} 
-                                className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 group cursor-pointer"
-                                onClick={() => setActiveLightboxPhoto({ url: ph, date: upd.date, caption: 'Daily site update attachment', uploadedByName: 'Contractor' })}
-                              >
-                                <img src={ph} alt="Progress detail" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                                <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                  <Maximize2 className="h-5 w-5 text-white drop-shadow" />
-                                </div>
+                        );
+                      } else {
+                        // contractor_update
+                        return (
+                          <div key={item.id} className="glass-panel rounded-2xl p-6 shadow-sm border border-emerald-550/10 bg-emerald-950/5 border-emerald-500/10 space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-500/15 pb-3.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-white text-md flex items-center gap-1.5">
+                                  <Camera className="h-4.5 w-4.5 text-emerald-400" />
+                                  Site Progress Photo Update
+                                </span>
+                                <span className="text-emerald-800">•</span>
+                                <span className="text-xs font-semibold text-slate-400">{new Date(item.createdAt).toLocaleDateString()}</span>
                               </div>
-                            ))}
+                              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded">
+                                Category: {item.category}
+                              </span>
+                            </div>
+
+                            <div className="text-sm leading-relaxed text-slate-350">
+                              <p className="italic">"{item.caption}"</p>
+                            </div>
+
+                            {item.imageUrls && item.imageUrls.length > 0 && (
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-emerald-500/10">
+                                {item.imageUrls.map((url, index) => (
+                                  <div 
+                                    key={index} 
+                                    className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 hover:border-slate-700 group cursor-pointer"
+                                    onClick={() => {
+                                      setPhotoViewerData({
+                                        id: item.id,
+                                        title: 'Contractor Progress Update',
+                                        category: item.category,
+                                        caption: item.caption,
+                                        imageUrls: item.imageUrls,
+                                        uploadedAt: item.createdAt
+                                      });
+                                      setViewerSliderIndex(index);
+                                      setViewerZoom(1);
+                                    }}
+                                  >
+                                    <img src={url} alt="Progress detail" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                    <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <Maximize2 className="h-5 w-5 text-white drop-shadow" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ))}
+                        );
+                      }
+                    })}
                   </div>
                 )}
               </div>
@@ -882,67 +1527,139 @@ export default function ClientDashboard() {
                   </button>
                 </div>
 
-                {progressPhotos.length === 0 ? (
+                {combinedPhotosFeed.length === 0 ? (
                   <div className="glass-panel rounded-xl p-12 text-center text-slate-500 flex flex-col items-center justify-center space-y-3">
-                    <Camera className="h-10 w-10 text-slate-655" />
+                    <Camera className="h-10 w-10 text-slate-600" />
                     <p>No site photos have been logged in the timeline yet.</p>
                   </div>
                 ) : (
                   <div className="relative border-l border-slate-800 pl-6 ml-3 space-y-8 py-2">
-                    {progressPhotos.map((ph) => (
-                      <div key={ph.id} className="relative">
-                        {/* Timeline dot indicator */}
-                        <span className={`absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
-                          ph.uploadedBy === 'client' 
-                            ? 'bg-emerald-500 border-emerald-500' 
-                            : 'bg-indigo-500 border-indigo-500'
-                        }`} />
-                        
-                        <div className="glass-panel rounded-xl p-5 shadow-sm space-y-4 max-w-2xl">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                            <div>
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Uploaded By</span>
-                              <span className="font-semibold text-white text-xs">{ph.uploadedByName} ({ph.uploadedBy})</span>
-                            </div>
-                            <div className="text-right text-[10px] text-slate-400">
-                              <span className="block font-mono">Date: {ph.date}</span>
-                              <span className="block font-mono">Time: {ph.time}</span>
-                            </div>
-                          </div>
-
-                          <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group cursor-pointer"
-                               onClick={() => setActiveLightboxPhoto({ url: ph.photoUrl, date: `${ph.date} ${ph.time}`, caption: ph.caption, uploadedByName: ph.uploadedByName })}>
-                            <img src={ph.photoUrl} alt={ph.caption} className="h-full w-full object-contain" />
-                            <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <Maximize2 className="h-6 w-6 text-white drop-shadow" />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-4">
-                            <p className="text-xs text-slate-300 italic">"{ph.caption}"</p>
+                    {combinedPhotosFeed.map((ph) => {
+                      if (ph.feedType === 'progress_photo') {
+                        return (
+                          <div key={ph.id} className="relative">
+                            {/* Timeline dot indicator */}
+                            <span className={`absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
+                              ph.uploadedBy === 'client' 
+                                ? 'bg-emerald-500 border-emerald-500' 
+                                : 'bg-indigo-500 border-indigo-500'
+                            }`} />
                             
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => triggerDownload(ph.photoUrl, `progress_${ph.date}_${ph.time}.jpg`)}
-                                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
-                                title="Download Photo"
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                              </button>
-                              {ph.uploadedBy === 'client' && (
-                                <button
-                                  onClick={() => handleDeletePhoto(ph.id, ph.uploadedBy)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-455 hover:bg-slate-800 rounded transition-colors"
-                                  title="Delete Photo Log"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
+                            <div className="glass-panel rounded-xl p-5 shadow-sm space-y-4 max-w-2xl">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                                <div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Uploaded By</span>
+                                  <span className="font-semibold text-white text-xs">{ph.uploadedByName} ({ph.uploadedBy})</span>
+                                </div>
+                                <div className="text-right text-[10px] text-slate-400">
+                                  <span className="block font-mono">Date: {ph.date}</span>
+                                  <span className="block font-mono">Time: {ph.time}</span>
+                                </div>
+                              </div>
+
+                              <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group cursor-pointer"
+                                   onClick={() => {
+                                     setPhotoViewerData({
+                                       id: ph.id,
+                                       title: 'Timeline Photo Share',
+                                       caption: ph.caption,
+                                       imageUrls: [ph.photoUrl],
+                                       uploadedAt: ph.timestamp || ph.date + 'T' + ph.time
+                                     });
+                                     setViewerSliderIndex(0);
+                                     setViewerZoom(1);
+                                   }}>
+                                <img src={ph.photoUrl} alt={ph.caption} className="h-full w-full object-contain" />
+                                <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <Maximize2 className="h-6 w-6 text-white drop-shadow" />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-4">
+                                <p className="text-xs text-slate-300 italic">"{ph.caption}"</p>
+                                
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => triggerDownload(ph.photoUrl, `progress_${ph.date}_${ph.time}.jpg`)}
+                                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                                    title="Download Photo"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                  </button>
+                                  {ph.uploadedBy === 'client' && (
+                                    <button
+                                      onClick={() => handleDeletePhoto(ph.id, ph.uploadedBy)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-455 hover:bg-slate-800 rounded transition-colors"
+                                      title="Delete Photo Log"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
+                        );
+                      } else {
+                        // feedType === 'contractor_update'
+                        return (
+                          <div key={ph.id} className="relative">
+                            <span className="absolute -left-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 bg-emerald-500 border-emerald-500" />
+                            
+                            <div className="glass-panel rounded-xl p-5 shadow-sm space-y-4 max-w-2xl">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                                <div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Proactive Work Progress</span>
+                                  <span className="font-semibold text-white text-xs">Contractor ({ph.category})</span>
+                                </div>
+                                <div className="text-right text-[10px] text-slate-400">
+                                  <span className="block font-mono">Date: {new Date(ph.createdAt).toLocaleDateString()}</span>
+                                  <span className="block font-mono">Time: {new Date(ph.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                              </div>
+
+                              <div className={`grid gap-2.5 ${ph.imageUrls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                {ph.imageUrls.map((url, index) => (
+                                  <div
+                                    key={index}
+                                    className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group cursor-pointer"
+                                    onClick={() => {
+                                      setPhotoViewerData({
+                                        id: ph.id,
+                                        title: 'Contractor Progress Update',
+                                        category: ph.category,
+                                        caption: ph.caption,
+                                        imageUrls: ph.imageUrls,
+                                        uploadedAt: ph.createdAt
+                                      });
+                                      setViewerSliderIndex(index);
+                                      setViewerZoom(1);
+                                    }}
+                                  >
+                                    <img src={url} alt="Update item" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                    <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <Maximize2 className="h-5 w-5 text-white drop-shadow" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center justify-between gap-4">
+                                <p className="text-xs text-slate-350 italic">"{ph.caption}"</p>
+                                
+                                <button
+                                  onClick={() => triggerDownload(ph.imageUrls[0], `update_${ph.id}.jpg`)}
+                                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                                  title="Download Photo"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })}
                   </div>
                 )}
               </div>
@@ -1877,6 +2594,196 @@ export default function ClientDashboard() {
                 className="flex items-center gap-1 text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition-all"
               >
                 <Download className="h-4 w-4" /> Download Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PREMIUM PHOTO VIEWER MODAL */}
+      {photoViewerData && (
+        <div className="fixed inset-0 z-50 flex flex-col md:flex-row items-stretch justify-between bg-slate-955 bg-slate-950/95 backdrop-blur-md">
+          {/* Main Visual Panel */}
+          <div className="flex-1 flex flex-col items-center justify-center p-6 relative bg-black">
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setPhotoViewerData(null);
+                setViewerSliderIndex(0);
+                setViewerZoom(1);
+              }}
+              className="absolute top-4 right-4 z-50 rounded-full bg-slate-900/80 p-2 text-slate-355 hover:text-white border border-slate-800 transition-colors"
+              title="Close Viewer"
+            >
+              <X className="h-6 w-6" />
+            </button>
+
+            {/* Slider Controls */}
+            {photoViewerData.imageUrls.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewerSliderIndex(prev => (prev === 0 ? photoViewerData.imageUrls.length - 1 : prev - 1));
+                    setViewerZoom(1);
+                  }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 z-40 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800 p-3 text-white hover:scale-105 transition-all"
+                  title="Previous Image"
+                >
+                  <ChevronRight className="h-6 w-6 rotate-180" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewerSliderIndex(prev => (prev === photoViewerData.imageUrls.length - 1 ? 0 : prev + 1));
+                    setViewerZoom(1);
+                  }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 z-40 rounded-xl bg-slate-900/60 hover:bg-slate-900 border border-slate-800 p-3 text-white hover:scale-105 transition-all"
+                  title="Next Image"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </>
+            )}
+
+            {/* Image Container with Zoom */}
+            <div className="w-full h-[60vh] md:h-[70vh] flex items-center justify-center overflow-hidden rounded-xl border border-slate-900 bg-slate-950/40 relative">
+              <img
+                src={photoViewerData.imageUrls[viewerSliderIndex]}
+                alt="Fullscreen site progress"
+                style={{ transform: `scale(${viewerZoom})`, transition: 'transform 0.2s ease-out' }}
+                className="max-w-full max-h-full object-contain pointer-events-none"
+              />
+              
+              {/* Image indicator */}
+              <div className="absolute bottom-4 bg-slate-900/80 px-3 py-1 rounded-full text-slate-300 text-[10px] font-mono border border-slate-800">
+                Image {viewerSliderIndex + 1} of {photoViewerData.imageUrls.length}
+              </div>
+            </div>
+
+            {/* Micro-gallery layout below standard slider */}
+            {photoViewerData.imageUrls.length > 1 && (
+              <div className="flex gap-2.5 mt-4 overflow-x-auto max-w-full p-2 no-scrollbar">
+                {photoViewerData.imageUrls.map((url, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setViewerSliderIndex(idx);
+                      setViewerZoom(1);
+                    }}
+                    className={`h-14 w-20 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${
+                      viewerSliderIndex === idx ? 'border-emerald-500 scale-105' : 'border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <img src={url} alt="thumbnail" className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar Metadata panel */}
+          <div className="w-full md:w-96 border-t md:border-t-0 md:border-l border-slate-850 bg-slate-900 p-6 flex flex-col justify-between space-y-6">
+            <div className="space-y-5">
+              <div className="border-b border-slate-850 pb-4">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full inline-block mb-3">
+                  {photoViewerData.category || photoViewerData.area || 'General Update'}
+                </span>
+                <h3 className="text-lg font-extrabold text-white leading-tight">
+                  {photoViewerData.title}
+                </h3>
+                <p className="text-xs text-slate-450 mt-1">Project: {project.projectName}</p>
+              </div>
+
+              {/* Detail block */}
+              <div className="space-y-4 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Contractor Caption</span>
+                  <p className="text-slate-200 mt-1 italic leading-relaxed bg-slate-950/30 border border-slate-850 p-3 rounded-lg">
+                    "{photoViewerData.caption}"
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-[11px] text-slate-400 pt-2 border-t border-slate-850">
+                  <div>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase block">Upload Time</span>
+                    <span className="font-mono text-slate-300">{new Date(photoViewerData.uploadedAt).toLocaleString()}</span>
+                  </div>
+                  {photoViewerData.priority && (
+                    <div>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase block">Priority Level</span>
+                      <span className="font-semibold text-slate-300">{photoViewerData.priority}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons Panel */}
+            <div className="pt-6 border-t border-slate-850 space-y-3">
+              {/* Zoom Controls */}
+              <div className="flex items-center justify-between bg-slate-950/45 p-3 rounded-xl border border-slate-855 mb-2">
+                <span className="text-xs text-slate-400 font-medium">Zoom Factor: <strong className="text-white font-mono">{viewerZoom.toFixed(1)}x</strong></span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewerZoom(prev => Math.max(1, prev - 0.5))}
+                    className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-750 text-white flex items-center justify-center font-extrabold text-xs transition-all"
+                    title="Zoom Out"
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewerZoom(prev => Math.min(4, prev + 0.5))}
+                    className="h-7 w-7 rounded-lg bg-slate-850 hover:bg-slate-750 border border-slate-750 text-white flex items-center justify-center font-extrabold text-xs transition-all"
+                    title="Zoom In"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewerZoom(1)}
+                    className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold transition-all"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Download trigger */}
+              <button
+                type="button"
+                onClick={() => triggerDownload(photoViewerData.imageUrls[viewerSliderIndex], `progress_viewer_${viewerSliderIndex}.jpg`)}
+                className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 hover:text-white border border-slate-750 py-2.5 text-xs font-bold text-slate-300 transition-all"
+              >
+                <Download className="h-4 w-4" /> Download Selected Photo
+              </button>
+
+              {/* Close ticket Mark as Completed trigger */}
+              {photoViewerData.requestId && photoViewerData.status !== 'Completed' && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleMarkRequestCompleted(photoViewerData.requestId);
+                    setPhotoViewerData(prev => ({ ...prev, status: 'Completed' }));
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 py-2.5 text-xs font-bold text-white transition-all shadow-lg shadow-emerald-500/10"
+                >
+                  <CheckCircle className="h-4 w-4" /> Mark as Viewed & Complete Request
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPhotoViewerData(null);
+                  setViewerSliderIndex(0);
+                  setViewerZoom(1);
+                }}
+                className="w-full rounded-lg border border-slate-850 bg-slate-950 py-2.5 text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-900 transition-all"
+              >
+                Close Fullscreen Viewer
               </button>
             </div>
           </div>

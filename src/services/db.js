@@ -14,7 +14,10 @@ const KEYS = {
   PHOTOS: 'cms_photos',
   LABOURS: 'cms_labours',
   ATTENDANCE: 'cms_attendance',
-  PAYMENT_STAGES: 'cms_payment_stages'
+  PAYMENT_STAGES: 'cms_payment_stages',
+  PICTURE_REQUESTS: 'cms_picture_requests',
+  REQUEST_RESPONSES: 'cms_request_responses',
+  CONTRACTOR_UPDATES: 'cms_contractor_updates'
 };
 
 let emailSentCallback = () => {};
@@ -952,5 +955,89 @@ export const db = {
     const list = this.getData(KEYS.PAYMENT_STAGES);
     const updated = list.filter(s => s.id !== stageId);
     this.setData(KEYS.PAYMENT_STAGES, updated);
+  },
+
+  getPictureRequests(userId, role) {
+    const list = this.getData(KEYS.PICTURE_REQUESTS);
+    if (role === 'contractor') {
+      return list.filter(r => r.contractorId === userId);
+    } else {
+      return list.filter(r => r.clientId === userId);
+    }
+  },
+
+  addPictureRequest(requestData) {
+    const list = this.getData(KEYS.PICTURE_REQUESTS);
+    const newRequest = {
+      id: requestData.id || `req_${Date.now()}`,
+      projectId: requestData.projectId,
+      clientId: requestData.clientId,
+      contractorId: requestData.contractorId,
+      title: requestData.title,
+      description: requestData.description,
+      area: requestData.area,
+      priority: requestData.priority,
+      specialNote: requestData.specialNote || '',
+      status: requestData.status || 'Pending',
+      createdAt: requestData.createdAt || new Date().toISOString(),
+      updatedAt: requestData.updatedAt || new Date().toISOString()
+    };
+    list.push(newRequest);
+    this.setData(KEYS.PICTURE_REQUESTS, list);
+    return newRequest;
+  },
+
+  updatePictureRequestStatus(requestId, status) {
+    const list = this.getData(KEYS.PICTURE_REQUESTS);
+    const idx = list.findIndex(r => r.id === requestId);
+    if (idx !== -1) {
+      list[idx].status = status;
+      list[idx].updatedAt = new Date().toISOString();
+      this.setData(KEYS.PICTURE_REQUESTS, list);
+      return list[idx];
+    }
+    return null;
+  },
+
+  getRequestResponses(requestId) {
+    const list = this.getData(KEYS.REQUEST_RESPONSES);
+    return list.filter(p => p.requestId === requestId);
+  },
+
+  addRequestResponse(responseData) {
+    const list = this.getData(KEYS.REQUEST_RESPONSES);
+    const newResponse = {
+      id: responseData.id || `resp_${Date.now()}`,
+      requestId: responseData.requestId,
+      contractorId: responseData.contractorId,
+      imageUrls: responseData.imageUrls || [],
+      caption: responseData.caption || '',
+      uploadedAt: responseData.uploadedAt || new Date().toISOString()
+    };
+    list.push(newResponse);
+    this.setData(KEYS.REQUEST_RESPONSES, list);
+    return newResponse;
+  },
+
+  getContractorUpdates(projectId) {
+    const list = this.getData(KEYS.CONTRACTOR_UPDATES);
+    return list.filter(u => u.projectId === projectId);
+  },
+
+  addContractorUpdate(updateData) {
+    const list = this.getData(KEYS.CONTRACTOR_UPDATES);
+    const newUpdate = {
+      id: updateData.id || `upd_${Date.now()}`,
+      projectId: updateData.projectId,
+      contractorId: updateData.contractorId,
+      clientId: updateData.clientId,
+      imageUrls: updateData.imageUrls || [],
+      caption: updateData.caption || '',
+      category: updateData.category || 'General',
+      createdAt: updateData.createdAt || new Date().toISOString()
+    };
+    list.push(newUpdate);
+    this.setData(KEYS.CONTRACTOR_UPDATES, list);
+    return newUpdate;
   }
 };

@@ -676,7 +676,7 @@ export const firebaseService = {
     }
   },
 
-  async addNotification(projectId, contractorId, clientId, title, message, target, priority = 'normal') {
+  async addNotification(projectId, contractorId, clientId, title, message, target, priority = 'normal', metadata = {}) {
     if (liveFirestore) {
       const { collection, addDoc } = require('firebase/firestore');
       await addDoc(collection(liveFirestore, 'notifications'), {
@@ -688,7 +688,8 @@ export const firebaseService = {
         date: new Date().toLocaleString(),
         read: false,
         target,
-        priority
+        priority,
+        ...metadata
       });
     } else {
       const list = JSON.parse(localStorage.getItem('cms_notifications')) || [];
@@ -702,7 +703,8 @@ export const firebaseService = {
         date: new Date().toLocaleString(),
         read: false,
         target,
-        priority
+        priority,
+        ...metadata
       };
       list.unshift(newNotif);
       localStorage.setItem('cms_notifications', JSON.stringify(list));
@@ -852,6 +854,203 @@ export const firebaseService = {
       await deleteDoc(doc(liveFirestore, 'payment_stages', stageId));
     } else {
       mockDb.deletePaymentStage(stageId);
+    }
+  },
+
+  // --- PICTURE REQUESTS ---
+  async getPictureRequests(userId, role) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const dbRef = collection(liveFirestore, 'picture_requests');
+      let q;
+      if (role === 'contractor') {
+        q = query(dbRef, where('contractorId', '==', userId));
+      } else {
+        q = query(dbRef, where('clientId', '==', userId));
+      }
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+    } else {
+      return mockDb.getPictureRequests(userId, role);
+    }
+  },
+
+  async addPictureRequest(requestData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'picture_requests'), {
+        projectId: requestData.projectId,
+        clientId: requestData.clientId,
+        contractorId: requestData.contractorId,
+        title: requestData.title,
+        description: requestData.description,
+        area: requestData.area,
+        priority: requestData.priority,
+        specialNote: requestData.specialNote || '',
+        status: requestData.status || 'Pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      return docRef.id;
+    } else {
+      return mockDb.addPictureRequest(requestData);
+    }
+  },
+
+  async updatePictureRequestStatus(requestId, status) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      await updateDoc(doc(liveFirestore, 'picture_requests', requestId), {
+        status,
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      mockDb.updatePictureRequestStatus(requestId, status);
+    }
+  },
+
+  async getRequestResponses(requestId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'request_responses'), where('requestId', '==', requestId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      return mockDb.getRequestResponses(requestId);
+    }
+  },
+
+  async addRequestResponse(responseData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'request_responses'), {
+        requestId: responseData.requestId,
+        contractorId: responseData.contractorId,
+        imageUrls: responseData.imageUrls || [],
+        caption: responseData.caption || '',
+        uploadedAt: new Date().toISOString()
+      });
+      return docRef.id;
+    } else {
+      return mockDb.addRequestResponse(responseData);
+    }
+  },
+
+  async getContractorUpdates(projectId) {
+    if (liveFirestore) {
+      const { collection, query, where, getDocs } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'contractor_updates'), where('projectId', '==', projectId));
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+    } else {
+      return mockDb.getContractorUpdates(projectId);
+    }
+  },
+
+  async addContractorUpdate(updateData) {
+    if (liveFirestore) {
+      const { collection, addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(liveFirestore, 'contractor_updates'), {
+        projectId: updateData.projectId,
+        contractorId: updateData.contractorId,
+        clientId: updateData.clientId,
+        imageUrls: updateData.imageUrls || [],
+        caption: updateData.caption || '',
+        category: updateData.category || 'General',
+        createdAt: new Date().toISOString()
+      });
+      return docRef.id;
+    } else {
+      return mockDb.addContractorUpdate(updateData);
+    }
+  },
+
+  // --- REALTIME SUBSCRIPTIONS ---
+  subscribePictureRequests(userId, role, callback) {
+    if (liveFirestore) {
+      const { collection, query, where, onSnapshot } = require('firebase/firestore');
+      const dbRef = collection(liveFirestore, 'picture_requests');
+      let q;
+      if (role === 'contractor') {
+        q = query(dbRef, where('contractorId', '==', userId));
+      } else {
+        q = query(dbRef, where('clientId', '==', userId));
+      }
+      return onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+        callback(data);
+      });
+    } else {
+      const poll = () => {
+        const data = mockDb.getPictureRequests(userId, role).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+        callback(data);
+      };
+      poll();
+      const interval = setInterval(poll, 1500);
+      return () => clearInterval(interval);
+    }
+  },
+
+  subscribeRequestResponses(requestId, callback) {
+    if (liveFirestore) {
+      const { collection, query, where, onSnapshot } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'request_responses'), where('requestId', '==', requestId));
+      return onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(data);
+      });
+    } else {
+      const poll = () => {
+        const data = mockDb.getRequestResponses(requestId);
+        callback(data);
+      };
+      poll();
+      const interval = setInterval(poll, 1500);
+      return () => clearInterval(interval);
+    }
+  },
+
+  subscribeContractorUpdates(projectId, callback) {
+    if (liveFirestore) {
+      const { collection, query, where, onSnapshot } = require('firebase/firestore');
+      const q = query(collection(liveFirestore, 'contractor_updates'), where('projectId', '==', projectId));
+      return onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+        callback(data);
+      });
+    } else {
+      const poll = () => {
+        const data = mockDb.getContractorUpdates(projectId).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+        callback(data);
+      };
+      poll();
+      const interval = setInterval(poll, 1500);
+      return () => clearInterval(interval);
+    }
+  },
+
+  subscribeNotifications(userId, role, callback) {
+    if (liveFirestore) {
+      const { collection, query, where, onSnapshot } = require('firebase/firestore');
+      let q = collection(liveFirestore, 'notifications');
+      if (role === 'contractor') {
+        q = query(q, where('contractorId', '==', userId), where('target', '==', 'contractor'));
+      } else {
+        q = query(q, where('clientId', '==', userId), where('target', '==', 'client'));
+      }
+      return onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => b.date.localeCompare(a.date));
+        callback(data);
+      });
+    } else {
+      const poll = () => {
+        const list = JSON.parse(localStorage.getItem('cms_notifications')) || [];
+        const filtered = list.filter(n => role === 'contractor' ? n.contractorId === userId && n.target === 'contractor' : n.clientId === userId && n.target === 'client');
+        callback(filtered.sort((a,b) => b.date.localeCompare(a.date)));
+      };
+      poll();
+      const interval = setInterval(poll, 1500);
+      return () => clearInterval(interval);
     }
   }
 };
