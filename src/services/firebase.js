@@ -333,6 +333,16 @@ export const firebaseService = {
     }
   },
 
+  async updateClientStatus(clientId, status) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      const userRef = doc(liveFirestore, 'users', clientId);
+      await updateDoc(userRef, { status });
+    } else {
+      mockDb.updateClientStatus(clientId, status);
+    }
+  },
+
   // Daily Updates
   async getDailyUpdates(projectId) {
     if (liveFirestore) {
@@ -368,6 +378,37 @@ export const firebaseService = {
         photos: updateData.photos
       };
       return mockDb.addDailyUpdate(projectId, formatted);
+    }
+  },
+
+  async updateDailyUpdate(logId, updateData) {
+    if (liveFirestore) {
+      const { doc, updateDoc } = require('firebase/firestore');
+      await updateDoc(doc(liveFirestore, 'daily_updates', logId), {
+        labourCount: parseInt(updateData.labourCount) || 0,
+        workCompleted: updateData.workCompleted,
+        delays: updateData.delays || 'None',
+        remarks: updateData.remarks || ''
+      });
+    } else {
+      const updates = mockDb.getData('cms_updates') || [];
+      const idx = updates.findIndex(u => u.id === logId);
+      if (idx !== -1) {
+        updates[idx].labour_count = parseInt(updateData.labourCount) || 0;
+        updates[idx].notes = `Work Completed: ${updateData.workCompleted}\nDelays: ${updateData.delays}\nRemarks: ${updateData.remarks}`;
+        mockDb.setData('cms_updates', updates);
+      }
+    }
+  },
+
+  async deleteDailyUpdate(logId) {
+    if (liveFirestore) {
+      const { doc, deleteDoc } = require('firebase/firestore');
+      await deleteDoc(doc(liveFirestore, 'daily_updates', logId));
+    } else {
+      const updates = mockDb.getData('cms_updates') || [];
+      const filtered = updates.filter(u => u.id !== logId);
+      mockDb.setData('cms_updates', filtered);
     }
   },
 
@@ -457,7 +498,9 @@ export const firebaseService = {
         deadline: taskData.deadline,
         priority: taskData.priority || 'Medium',
         status: taskData.status || 'Pending',
-        progress: parseInt(taskData.progress) || 0
+        progress: parseInt(taskData.progress) || 0,
+        assignedTo: taskData.assignedTo || contractorId,
+        assignedToName: taskData.assignedToName || 'Contractor'
       });
       return docRef.id;
     } else {

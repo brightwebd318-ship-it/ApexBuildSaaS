@@ -59,7 +59,8 @@ export const db = {
           password: 'Arun@2026',
           role: 'client',
           phone: '+91 (555) 888-0001',
-          contractorId: 'user_contractor_1'
+          contractorId: 'user_contractor_1',
+          status: 'Active'
         },
         {
           id: 'user_client_manu',
@@ -68,7 +69,8 @@ export const db = {
           password: 'Manu@2026',
           role: 'client',
           phone: '+91 (555) 888-0002',
-          contractorId: 'user_contractor_1'
+          contractorId: 'user_contractor_1',
+          status: 'Active'
         }
       ];
 
@@ -168,7 +170,8 @@ export const db = {
         password: 'Arun@2026',
         role: 'client',
         phone: '+91 (555) 888-0001',
-        contractorId: 'user_contractor_1'
+        contractorId: 'user_contractor_1',
+        status: 'Active'
       },
       {
         id: 'user_client_manu',
@@ -177,7 +180,8 @@ export const db = {
         password: 'Manu@2026',
         role: 'client',
         phone: '+91 (555) 888-0002',
-        contractorId: 'user_contractor_1'
+        contractorId: 'user_contractor_1',
+        status: 'Active'
       }
     ];
 
@@ -573,6 +577,17 @@ export const db = {
     return users.filter(u => u.role === 'client' && clientIds.includes(u.id));
   },
 
+  updateClientStatus(clientId, status) {
+    const users = this.getData(KEYS.USERS);
+    const idx = users.findIndex(u => u.id === clientId);
+    if (idx !== -1) {
+      users[idx].status = status;
+      this.setData(KEYS.USERS, users);
+      return users[idx];
+    }
+    return null;
+  },
+
   addClientAndProject(contractorId, clientData, projectData) {
     const users = this.getData(KEYS.USERS);
     const projects = this.getData(KEYS.PROJECTS);
@@ -588,7 +603,8 @@ export const db = {
         password: clientData.password || '',
         role: 'client',
         contractorId,
-        changePasswordRequired: clientData.invitationType === 'auto_gen'
+        changePasswordRequired: clientData.invitationType === 'auto_gen',
+        status: 'Active'
       };
       users.push(client);
       this.setData(KEYS.USERS, users);
@@ -713,7 +729,9 @@ export const db = {
       deadline: taskData.deadline,
       progress: parseInt(taskData.progress) || 0,
       priority: taskData.priority || 'Medium',
-      status: taskData.status || 'Pending'
+      status: taskData.status || 'Pending',
+      assignedTo: taskData.assignedTo || '',
+      assignedToName: taskData.assignedToName || ''
     };
     timeline.push(newTask);
     this.setData(KEYS.TIMELINE, timeline);

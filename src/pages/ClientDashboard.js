@@ -763,7 +763,7 @@ export default function ClientDashboard() {
   ].sort((a, b) => b.sortTimestamp.localeCompare(a.sortTimestamp));
 
   return (
-    <div className="min-h-screen bg-slate-950 dark:bg-slate-950 text-slate-100 pb-16 transition-colors duration-300 relative">
+    <div className="min-h-screen bg-transparent text-slate-900 dark:text-slate-100 pb-16 transition-colors duration-300 relative">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

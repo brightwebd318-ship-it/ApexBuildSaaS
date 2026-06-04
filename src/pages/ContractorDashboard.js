@@ -6,7 +6,7 @@ import {
   Trash2, ClipboardList, Package, BarChart3, MapPin, 
   FileText, Download, Bell, AlertTriangle, Paperclip, Camera,
   X, Maximize2, ExternalLink, Pencil, Folder, File, FileUp, ChevronDown, ChevronRight,
-  Search, Eye, Clock, UserCheck, CreditCard
+  Search, Eye, Clock, UserCheck, CreditCard, Settings
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line } from 'recharts';
 
@@ -15,6 +15,24 @@ export default function ContractorDashboard() {
   
   // Tab navigation state
   const [activeTab, setActiveTab] = useState('overview');
+
+  // New multi-tiered navigation states for simplified UX
+  const [activeHub, setActiveHub] = useState('overview'); // 'overview', 'sites', 'workforce', 'financials'
+  const [overviewTasksView, setOverviewTasksView] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null); // project object (for active sites console)
+  const [projectSubTab, setProjectSubTab] = useState('updates'); // 'updates', 'timeline', 'photos', 'expenses', 'documents'
+  const [sitesSubTab, setSitesSubTab] = useState('projects'); // 'projects', 'clients'
+  const [expensesSubTab, setExpensesSubTab] = useState('costs'); // 'costs', 'materials', 'payments'
+  const [workforceSubTab, setWorkforceSubTab] = useState('labours'); // 'labours', 'attendance'
+  const [financialsSubTab, setFinancialsSubTab] = useState('aggregated'); // 'aggregated', 'materials', 'stages'
+
+  // New global aggregated data states
+  const [globalCosts, setGlobalCosts] = useState([]);
+  const [globalMaterials, setGlobalMaterials] = useState([]);
+  const [globalTimeline, setGlobalTimeline] = useState([]);
+  const [globalUpdates, setGlobalUpdates] = useState([]);
+  const [globalStages, setGlobalStages] = useState([]);
+  const [globalDocs, setGlobalDocs] = useState([]);
   
   // Data lists state
   const [projects, setProjects] = useState([]);
@@ -75,6 +93,9 @@ export default function ContractorDashboard() {
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [viewAllNotifications, setViewAllNotifications] = useState(false);
 
+  // Settings Dropdown
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
+
   // Picture Request response states
   const [pictureRequests, setPictureRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -85,11 +106,7 @@ export default function ContractorDashboard() {
   const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
 
   // Proactive Contractor Updates states (Option 3)
-  const [showProactiveUpdateModal, setShowProactiveUpdateModal] = useState(false);
   const [proactivePhotosList, setProactivePhotosList] = useState([]);
-  const [proactiveCaption, setProactiveCaption] = useState('');
-  const [proactiveCategory, setProactiveCategory] = useState('General');
-  const [isSubmittingProactive, setIsSubmittingProactive] = useState(false);
   
   // Payment Stage Management States
   const [paymentStages, setPaymentStages] = useState([]);
@@ -147,7 +164,6 @@ export default function ContractorDashboard() {
   const [updWorkCompleted, setUpdWorkCompleted] = useState('');
   const [updDelays, setUpdDelays] = useState('None');
   const [updRemarks, setUpdRemarks] = useState('');
-  const [updPhotoUrl, setUpdPhotoUrl] = useState('');
 
   // Form State - Material Entry
   const [matName, setMatName] = useState('');
@@ -162,6 +178,8 @@ export default function ContractorDashboard() {
   const [timePriority, setTimePriority] = useState('Medium');
   const [timeStatus, setTimeStatus] = useState('Pending');
   const [timeProgress, setTimeProgress] = useState(0);
+  const [timeAssignedTo, setTimeAssignedTo] = useState('');
+  const [timeAssignedToName, setTimeAssignedToName] = useState('');
 
   // Form State - Cost Management
   const [costItem, setCostItem] = useState('');
@@ -185,12 +203,24 @@ export default function ContractorDashboard() {
   const [labourSkillFilter, setLabourSkillFilter] = useState('All');
   const [labourStatusFilter, setLabourStatusFilter] = useState('All');
 
+  // Client List Filters
+  const [clientFilter, setClientFilter] = useState('All'); // 'All', 'Active', 'Finished'
+
   // Attendance Tracker States
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [attendanceProjectId, setAttendanceProjectId] = useState('');
   const [attendanceStatuses, setAttendanceStatuses] = useState({});
   const [attendanceRemarks, setAttendanceRemarks] = useState({});
   const [attendanceTimes, setAttendanceTimes] = useState({});
+
+  // Edit Log States
+  const [showEditLogModal, setShowEditLogModal] = useState(false);
+  const [editingLogId, setEditingLogId] = useState('');
+  const [editLogWorkCompleted, setEditLogWorkCompleted] = useState('');
+  const [editLogLaborCount, setEditLogLaborCount] = useState(1);
+  const [editLogDelays, setEditLogDelays] = useState('None');
+  const [editLogRemarks, setEditLogRemarks] = useState('');
+  const [editLogHasPermission, setEditLogHasPermission] = useState(false);
 
   const toggleFolder = (folderName) => {
     setExpandedFolders(prev => ({
@@ -269,7 +299,7 @@ export default function ContractorDashboard() {
 
   // Close camera on modal close
   useEffect(() => {
-    if (!showPhotoModal && !showRequestDetailModal && !showProactiveUpdateModal) {
+    if (!showPhotoModal && !showRequestDetailModal && !showDailyUpdateModal) {
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
       }
@@ -279,7 +309,7 @@ export default function ContractorDashboard() {
       setCapturedImage(null);
       setCameraError('');
     }
-  }, [showPhotoModal, showRequestDetailModal, showProactiveUpdateModal]);
+  }, [showPhotoModal, showRequestDetailModal, showDailyUpdateModal]);
 
   // Clean up stream on unmount
   useEffect(() => {
@@ -329,26 +359,52 @@ export default function ContractorDashboard() {
       setAttendanceRemarks(initialRemarks);
       setAttendanceTimes(initialTimes);
 
-      // 5. Load sub-items from select project ID
-      const targetProjId = selectedProjId || (projs.length > 0 ? projs[0].id : null);
-      if (targetProjId) {
-        const [fetchUpdates, fetchTimeline, fetchCosts, fetchMaterials, fetchDocs, fetchPhotos, fetchStages] = await Promise.all([
-          firebaseService.getDailyUpdates(targetProjId),
-          firebaseService.getTimeline(targetProjId),
-          firebaseService.getCosts(targetProjId),
-          firebaseService.getMaterials(targetProjId),
-          firebaseService.getDocuments(targetProjId),
-          firebaseService.getProgressPhotos(targetProjId),
-          firebaseService.getPaymentStages(targetProjId)
+      // 5. Load sub-items and global aggregates
+      if (projs.length > 0) {
+        const allCostsPromises = projs.map(p => firebaseService.getCosts(p.id));
+        const allMaterialsPromises = projs.map(p => firebaseService.getMaterials(p.id));
+        const allTimelinePromises = projs.map(p => firebaseService.getTimeline(p.id));
+        const allUpdatesPromises = projs.map(p => firebaseService.getDailyUpdates(p.id));
+        const allStagesPromises = projs.map(p => firebaseService.getPaymentStages(p.id));
+        const allDocsPromises = projs.map(p => firebaseService.getDocuments(p.id));
+
+        const [resolvedCosts, resolvedMaterials, resolvedTimelines, resolvedUpdates, resolvedStages, resolvedDocs] = await Promise.all([
+          Promise.all(allCostsPromises),
+          Promise.all(allMaterialsPromises),
+          Promise.all(allTimelinePromises),
+          Promise.all(allUpdatesPromises),
+          Promise.all(allStagesPromises),
+          Promise.all(allDocsPromises)
         ]);
 
-        setAllUpdates(fetchUpdates);
-        setAllTimeline(fetchTimeline);
-        setAllCosts(fetchCosts);
-        setAllMaterials(fetchMaterials);
-        setAllDocuments(fetchDocs);
-        setProgressPhotos(fetchPhotos);
-        setPaymentStages(fetchStages);
+        const mergedCosts = resolvedCosts.flatMap((list, idx) => list.map(c => ({ ...c, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+        const mergedMaterials = resolvedMaterials.flatMap((list, idx) => list.map(m => ({ ...m, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+        const mergedTimeline = resolvedTimelines.flatMap((list, idx) => list.map(t => ({ ...t, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+        const mergedUpdates = resolvedUpdates.flatMap((list, idx) => list.map(u => ({ ...u, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+        const mergedStages = resolvedStages.flatMap((list, idx) => list.map(s => ({ ...s, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+        const mergedDocs = resolvedDocs.flatMap((list, idx) => list.map(d => ({ ...d, projectId: projs[idx].id, projectName: projs[idx].projectName })));
+
+        setGlobalCosts(mergedCosts);
+        setGlobalMaterials(mergedMaterials);
+        setGlobalTimeline(mergedTimeline);
+        setGlobalUpdates(mergedUpdates);
+        setGlobalStages(mergedStages);
+        setGlobalDocs(mergedDocs);
+
+        // Update project-specific states for the active project
+        const activeId = selectedProjId || projs[0].id;
+        const projectIdx = projs.findIndex(p => p.id === activeId);
+        if (projectIdx !== -1) {
+          setAllUpdates(resolvedUpdates[projectIdx]);
+          setAllTimeline(resolvedTimelines[projectIdx]);
+          setAllCosts(resolvedCosts[projectIdx]);
+          setAllMaterials(resolvedMaterials[projectIdx]);
+          setAllDocuments(resolvedDocs[projectIdx]);
+          setPaymentStages(resolvedStages[projectIdx]);
+          
+          const photos = await firebaseService.getProgressPhotos(activeId);
+          setProgressPhotos(photos);
+        }
       }
     } catch (e) {
       console.error("Data syncing failed", e);
@@ -359,6 +415,16 @@ export default function ContractorDashboard() {
     syncAllData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, selectedProjId]);
+
+  // Sync selectedProject object when selectedProjId changes
+  useEffect(() => {
+    if (selectedProjId && projects.length > 0) {
+      const found = projects.find(p => p.id === selectedProjId);
+      if (found) {
+        setSelectedProject(found);
+      }
+    }
+  }, [selectedProjId, projects]);
 
   // Realtime subscription for Notifications & Picture Requests
   useEffect(() => {
@@ -545,84 +611,7 @@ export default function ContractorDashboard() {
     }
   };
 
-  const handleSendProactiveUpdate = async (e) => {
-    e.preventDefault();
-    if (proactivePhotosList.length === 0) {
-      alert("Please upload or capture at least one photo.");
-      return;
-    }
-    if (!proactiveCaption.trim()) {
-      alert("Please enter a caption.");
-      return;
-    }
-    
-    const targetProjId = selectedProjId || (projects.length > 0 ? projects[0].id : null);
-    if (!targetProjId) {
-      alert("No active project found.");
-      return;
-    }
-    
-    const activeProj = projects.find(p => p.id === targetProjId);
-    if (!activeProj) {
-      alert("Active project details could not be loaded.");
-      return;
-    }
 
-    setIsSubmittingProactive(true);
-    try {
-      // 1. Add update to contractor_updates collection
-      const updateId = await firebaseService.addContractorUpdate({
-        projectId: targetProjId,
-        contractorId: currentUser.uid || currentUser.id,
-        clientId: activeProj.clientId,
-        imageUrls: proactivePhotosList,
-        caption: proactiveCaption,
-        category: proactiveCategory,
-        createdAt: new Date().toISOString()
-      });
-
-      // 2. Add to project progress photos gallery
-      for (const img of proactivePhotosList) {
-        await firebaseService.addProgressPhoto(targetProjId, {
-          uploadedBy: 'contractor',
-          uploadedByName: currentUser.name,
-          photoUrl: img,
-          caption: proactiveCaption,
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toTimeString().split(' ')[0].substring(0, 5),
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // 3. Add to notifications
-      await firebaseService.addNotification(
-        targetProjId,
-        currentUser.uid || currentUser.id,
-        activeProj.clientId,
-        'New Progress Photos Shared',
-        `Contractor shared new progress photos: "${proactiveCaption}" under category "${proactiveCategory}".`,
-        'client',
-        'normal',
-        { type: 'contractor_update', updateId }
-      );
-
-      alert("Proactive progress update sent to client!");
-      
-      setProactivePhotosList([]);
-      setProactiveCaption('');
-      setProactiveCategory('General');
-      setShowProactiveUpdateModal(false);
-      
-      if (typeof syncAllData === 'function') {
-        syncAllData();
-      }
-    } catch (err) {
-      console.error("Error sending proactive progress photos:", err);
-      alert("Failed to send progress update. Please try again.");
-    } finally {
-      setIsSubmittingProactive(false);
-    }
-  };
 
   // Handle invitation type temporary password creation
   useEffect(() => {
@@ -733,9 +722,10 @@ export default function ContractorDashboard() {
 
   const handleAddDailyUpdate = async (e) => {
     e.preventDefault();
-    const photos = updPhotoUrl ? [updPhotoUrl] : [
-      'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=800&q=80'
-    ];
+    if (!selectedProjId) {
+      alert("Please select a project site first.");
+      return;
+    }
     try {
       await firebaseService.addDailyUpdate(selectedProjId, currentUser.uid, {
         date: updDate,
@@ -743,17 +733,31 @@ export default function ContractorDashboard() {
         workCompleted: updWorkCompleted,
         delays: updDelays,
         remarks: updRemarks,
-        photos
+        photos: proactivePhotosList
       });
 
       const selectedProj = projects.find(p => p.id === selectedProjId);
       if (selectedProj) {
+        // Add each photo to project progress photos gallery
+        for (const img of proactivePhotosList) {
+          await firebaseService.addProgressPhoto(selectedProjId, {
+            uploadedBy: 'contractor',
+            uploadedByName: currentUser.name,
+            photoUrl: img,
+            caption: updWorkCompleted || 'Progress update photo',
+            date: updDate,
+            time: new Date().toTimeString().split(' ')[0].substring(0, 5),
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // Dispatch notification
         await firebaseService.addNotification(
           selectedProjId,
           currentUser.uid,
           selectedProj.clientId,
-          'Daily Site Log Submitted',
-          `Contractor logged daily progress update for ${updDate}. Labour Force count: ${updLabor}.`,
+          'Progress Update Shared',
+          `Contractor shared a daily progress update: "${updWorkCompleted}" with ${proactivePhotosList.length} photos.`,
           'client'
         );
       }
@@ -763,15 +767,92 @@ export default function ContractorDashboard() {
       setUpdWorkCompleted('');
       setUpdDelays('None');
       setUpdRemarks('');
-      setUpdPhotoUrl('');
+      setProactivePhotosList([]);
       syncAllData();
+      alert("Progress update submitted successfully!");
     } catch (err) {
       alert(err.message);
     }
   };
 
+  const handleEditDailyUpdate = (log) => {
+    setEditingLogId(log.id);
+    
+    let workCompletedVal = log.workCompleted || '';
+    let delaysVal = log.delays || 'None';
+    let remarksVal = log.remarks || '';
+    
+    if (log.notes && !log.workCompleted) {
+      const lines = log.notes.split('\n');
+      lines.forEach(line => {
+        if (line.startsWith('Work Completed:')) {
+          workCompletedVal = line.replace('Work Completed:', '').trim();
+        } else if (line.startsWith('Delays:')) {
+          delaysVal = line.replace('Delays:', '').trim();
+        } else if (line.startsWith('Remarks:')) {
+          remarksVal = line.replace('Remarks:', '').trim();
+        }
+      });
+      if (!workCompletedVal) workCompletedVal = log.notes;
+    }
+    
+    setEditLogWorkCompleted(workCompletedVal);
+    setEditLogLaborCount(log.labourCount || log.labour_count || 1);
+    setEditLogDelays(delaysVal);
+    setEditLogRemarks(remarksVal);
+    setEditLogHasPermission(false);
+    setShowEditLogModal(true);
+  };
+
+  const handleSaveEditDailyUpdate = async (e) => {
+    e.preventDefault();
+    if (!editLogHasPermission) {
+      alert("Explicit client permission/approval is strictly required to modify locked timeline entries.");
+      return;
+    }
+    try {
+      await firebaseService.updateDailyUpdate(editingLogId, {
+        labourCount: parseInt(editLogLaborCount),
+        workCompleted: editLogWorkCompleted,
+        delays: editLogDelays,
+        remarks: editLogRemarks
+      });
+      
+      setShowEditLogModal(false);
+      setEditingLogId('');
+      setEditLogWorkCompleted('');
+      setEditLogRemarks('');
+      setEditLogHasPermission(false);
+      syncAllData();
+      alert("Daily update log modified successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to modify daily update log.");
+    }
+  };
+
+  const handleDeleteDailyUpdate = async (logId) => {
+    const hasPermission = window.confirm(
+      "🔒 LOCKED TIMELINE ENTRY\n\nModifying or deleting timeline entries requires client approval.\n\nHave you obtained explicit permission from the client to delete this daily update log?"
+    );
+    if (!hasPermission) return;
+    
+    try {
+      await firebaseService.deleteDailyUpdate(logId);
+      syncAllData();
+      alert("Daily update log deleted successfully.");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete daily update log.");
+    }
+  };
+
   const handleAddMaterial = async (e) => {
     e.preventDefault();
+    if (!selectedProjId) {
+      alert("Please select a project.");
+      return;
+    }
     try {
       await firebaseService.addMaterial(selectedProjId, currentUser.uid, {
         name: matName,
@@ -809,12 +890,17 @@ export default function ContractorDashboard() {
   const handleAddTimeline = async (e) => {
     e.preventDefault();
     try {
+      const assignedUid = timeAssignedTo || (currentUser.uid || currentUser.id);
+      const assignedName = timeAssignedToName || currentUser.name || 'Contractor';
+
       await firebaseService.addTimelineTask(selectedProjId, currentUser.uid, {
         task: timeTask,
         deadline: timeDeadline,
         priority: timePriority,
         status: timeStatus,
-        progress: timeProgress
+        progress: timeProgress,
+        assignedTo: assignedUid,
+        assignedToName: assignedName
       });
 
       // Notify Client
@@ -834,6 +920,10 @@ export default function ContractorDashboard() {
       setTimeTask('');
       setTimeDeadline('');
       setTimeProgress(0);
+      setTimePriority('Medium');
+      setTimeStatus('Pending');
+      setTimeAssignedTo('');
+      setTimeAssignedToName('');
       syncAllData();
     } catch (err) {
       alert(err.message);
@@ -865,6 +955,10 @@ export default function ContractorDashboard() {
 
   const handleAddCost = async (e) => {
     e.preventDefault();
+    if (!selectedProjId) {
+      alert("Please select a project.");
+      return;
+    }
     try {
       await firebaseService.addCostItem(selectedProjId, currentUser.uid, {
         item: costItem,
@@ -1340,12 +1434,19 @@ export default function ContractorDashboard() {
   const activeProj = projects.find(p => p.id === selectedProjId) || null;
   const totalClientsCount = allClients.length;
   const activeProjectsCount = projects.filter(p => p.status === 'Active').length;
-  const pendingTasksCount = allTimeline.filter(t => t.status !== 'Completed').length;
+  
+  // Tasks assigned to current contractor
+  const contractorPendingTasks = globalTimeline.filter(t => 
+    t.status !== 'Completed' && 
+    (t.assignedTo === (currentUser.uid || currentUser.id) || !t.assignedTo)
+  );
+  const pendingTasksCount = contractorPendingTasks.length;
+  
   const projectLaborCount = labours.filter(l => l.status === 'Active').length;
-  const materialsCostTotal = allCosts.filter(c => c.category === 'Materials').reduce((sum, item) => sum + item.amount, 0);
+  const materialsCostTotal = globalCosts.filter(c => c.category === 'Materials').reduce((sum, item) => sum + item.amount, 0);
 
-  const avgProgress = allTimeline.length > 0
-    ? Math.round(allTimeline.reduce((sum, t) => sum + t.progress, 0) / allTimeline.length)
+  const avgProgress = globalTimeline.length > 0
+    ? Math.round(globalTimeline.reduce((sum, t) => sum + t.progress, 0) / globalTimeline.length)
     : 0;
 
   // Chart Category expenses report
@@ -1404,13 +1505,16 @@ export default function ContractorDashboard() {
   });
 
   return (
-    <div className="min-h-screen pb-20 bg-slate-950 text-slate-100 transition-colors duration-300 relative">
+    <div className="min-h-screen pb-20 bg-transparent text-slate-900 dark:text-slate-100 transition-colors duration-300 relative">
       
       {/* Navbar Header */}
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 cursor-pointer hover:opacity-85 transition-opacity" onClick={() => {
+              setActiveHub('overview');
+              setSelectedProject(null); // Return to overview home scope
+            }}>
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
                 <HardHat className="h-5 w-5 animate-pulse-soft" />
               </div>
@@ -1561,6 +1665,45 @@ export default function ContractorDashboard() {
                 )}
               </div>
 
+              {/* Settings Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
+                  className={`p-2 rounded-xl border transition-all ${
+                    showSettingsDropdown 
+                      ? 'border-sky-500 bg-sky-500/10 text-sky-400' 
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:border-slate-700'
+                  }`}
+                  title="Settings"
+                >
+                  <Settings className="h-4.5 w-4.5" />
+                </button>
+
+                {showSettingsDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowSettingsDropdown(false)} 
+                    />
+                    
+                    <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-md z-50 animate-dropdown">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSettingsDropdown(false);
+                          setShowProjectModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors text-left focus:outline-none cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4 text-sky-400" />
+                        Create New Project
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 onClick={logout}
                 className="rounded-lg bg-slate-900 border border-slate-805 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white transition-all dark:bg-slate-900 dark:border-slate-800"
@@ -1571,6 +1714,8 @@ export default function ContractorDashboard() {
           </div>
         </div>
       </header>
+
+
 
       {/* Top Critical Alerts Banner */}
       {notifications.some(n => !n.read && n.priority === 'important') && showAlarmBanner && (
@@ -1605,105 +1750,216 @@ export default function ContractorDashboard() {
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
         
-        {/* Controls header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-extrabold text-white font-sans tracking-tight">Contractor Hub</h2>
-            <p className="text-xs text-slate-400">Manage client relationships, sites, timelines, costs, and blueprint documents</p>
+        {/* Hub Title Header & Sub-Tab Selectors */}
+        {activeHub === 'overview' && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-extrabold text-white font-sans tracking-tight">Contractor Dashboard</h2>
+              <p className="text-xs text-slate-400">Aggregated operations and metrics for your enterprise workspace</p>
+            </div>
           </div>
-          
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => {
-                setProactivePhotosList([]);
-                setProactiveCaption('');
-                setProactiveCategory('General');
-                setShowProactiveUpdateModal(true);
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-emerald-805 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 hover:text-emerald-300 px-3.5 py-2 text-xs font-bold transition-all"
-            >
-              <Camera className="h-4 w-4" /> Send Update Pictures
-            </button>
-            <button
-              onClick={() => {
-                setClientModalStep(1);
-                setShowClientModal(true);
-              }}
-              className="flex items-center gap-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 px-3.5 py-2 text-xs font-bold text-white transition-all shadow-lg shadow-sky-500/10"
-            >
-              <Plus className="h-4 w-4" /> Add Client Account
-            </button>
-            <button
-              onClick={() => setShowProjectModal(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white px-3.5 py-2 text-xs font-bold transition-all dark:border-slate-800"
-            >
-              <Plus className="h-4 w-4" /> Add New Project
-            </button>
+        )}
+
+        {activeHub === 'sites' && (
+          selectedProject === null ? (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-white font-sans tracking-tight">Projects</h2>
+                  <p className="text-xs text-slate-400">Manage client relationships, sites, and blueprints</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClientModalStep(1);
+                      setShowClientModal(true);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 px-3.5 py-2 text-xs font-bold text-white transition-all shadow-lg shadow-sky-500/10 cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4" /> Add Client Account
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'projects', label: 'Active Projects', icon: ClipboardList },
+                  { id: 'clients', label: 'Client Directory', icon: Users }
+                ].map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = sitesSubTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setSitesSubTab(tab.id)}
+                      className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                        isActive 
+                          ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <button
+                    onClick={() => setSelectedProject(null)}
+                    className="flex items-center gap-1 text-xs font-bold text-sky-400 hover:text-sky-300 transition-colors"
+                  >
+                    &larr; Back to Sites
+                  </button>
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-2xl font-extrabold text-white tracking-tight">{selectedProject.projectName}</h2>
+                    <span className="text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded uppercase">{selectedProject.status}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-slate-500 shrink-0" /> {selectedProject.siteLocation}</p>
+                </div>
+
+                <div className="flex items-center gap-2 bg-slate-900/60 p-2 rounded-xl border border-slate-800/80">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Switch Site:</span>
+                  <select
+                    value={selectedProjId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      setSelectedProjId(selectedId);
+                      const found = projects.find(p => p.id === selectedId);
+                      if (found) setSelectedProject(found);
+                    }}
+                    className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:outline-none cursor-pointer"
+                  >
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.projectName}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'updates', label: 'Daily Logs', icon: FileText },
+                  { id: 'timeline', label: 'Timeline Milestones', icon: Calendar },
+                  { id: 'photos', label: 'Photos & Requests', icon: Camera },
+                  { id: 'expenses', label: 'Client Expenses', icon: IndianRupee },
+                  { id: 'documents', label: 'Document Vault', icon: FileText }
+                ].map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = projectSubTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setProjectSubTab(tab.id)}
+                      className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                        isActive 
+                          ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        )}
+
+        {activeHub === 'workforce' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold text-white font-sans tracking-tight">Workforce Hub</h2>
+                <p className="text-xs text-slate-400">Manage site workers and track daily roll-call attendance</p>
+              </div>
+              {workforceSubTab === 'labours' && (
+                <button
+                  onClick={() => setShowAddLabourModal(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 px-3.5 py-2 text-xs font-bold text-white transition-all shadow-lg shadow-sky-500/10"
+                >
+                  <Plus className="h-4 w-4" /> Add Labour Profile
+                </button>
+              )}
+            </div>
+
+            <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
+              {[
+                { id: 'labours', label: 'Labours Directory', icon: HardHat },
+                { id: 'attendance', label: 'Daily Attendance Tracker', icon: UserCheck }
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = workforceSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setWorkforceSubTab(tab.id)}
+                    className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                      isActive 
+                        ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
-          {[
-            { id: 'overview', label: 'Overview Metrics', icon: BarChart3 },
-            { id: 'clients', label: 'Client Directory', icon: Users },
-            { id: 'projects', label: 'Active Projects', icon: ClipboardList },
-            { id: 'updates', label: 'Daily Logs', icon: FileText },
-            { id: 'photos', label: 'Timeline Photos', icon: Camera },
-            { id: 'picture-requests', label: 'Picture Requests', icon: Camera },
-            { id: 'labours', label: 'Labours Directory', icon: HardHat },
-            { id: 'attendance', label: 'Attendance Tracker', icon: UserCheck },
-            { id: 'materials', label: 'Materials Ledger', icon: Package },
-            { id: 'timeline', label: 'Milestones', icon: Calendar },
-            { id: 'costs', label: 'Costs & Bills', icon: IndianRupee },
-            { id: 'payments', label: 'Payment Stages', icon: CreditCard },
-            { id: 'documents', label: 'Document Vault', icon: FileText }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
-                  isActive 
-                    ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
-                }`}
-              >
-                <Icon className="h-4.5 w-4.5" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+        {activeHub === 'financials' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold text-white font-sans tracking-tight">Financials Hub</h2>
+                <p className="text-xs text-slate-400">Consolidated business financial records and expense breakdowns</p>
+              </div>
+            </div>
 
-        {/* Dynamic Project Selector for Sub-tabs */}
-        {activeTab !== 'overview' && activeTab !== 'clients' && activeTab !== 'labours' && activeTab !== 'attendance' && projects.length > 0 && (
-          <div className="flex items-center gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Select Project:</span>
-            <select
-              value={selectedProjId}
-              onChange={(e) => setSelectedProjId(e.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-white focus:outline-none"
-            >
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.projectName}</option>
-              ))}
-            </select>
+            <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar">
+              {[
+                { id: 'aggregated', label: 'Consolidated Summary', icon: CreditCard },
+                { id: 'materials', label: 'Global Materials Ledger', icon: Package },
+                { id: 'stages', label: 'Master Milestones Schedule', icon: Calendar }
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = financialsSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setFinancialsSubTab(tab.id)}
+                    className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                      isActive 
+                        ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
         {/* Tab Contents Renders */}
         <div className="min-h-[400px]">
-          
-          {/* TAB: PICTURE REQUESTS */}
-          {activeTab === 'picture-requests' && (
+          {/* TAB: PICTURE REQUESTS (Merged) */}
+          {false && (
             <div className="glass-panel rounded-2xl p-6 border border-slate-800 bg-slate-900/40 space-y-6 animate-fadeIn">
               <div className="border-b border-slate-900 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-md font-bold text-white">Clients' Photo Requests</h3>
-                  <p className="text-xs text-slate-450 mt-0.5">Manage, view, and fulfill active picture requests from your project clients</p>
+                  <p className="text-xs text-slate-455 mt-0.5">Manage, view, and fulfill active picture requests from your project clients</p>
                 </div>
               </div>
 
@@ -1767,108 +2023,359 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 1: OVERVIEW METRICS */}
-          {activeTab === 'overview' && (
+          {activeHub === 'overview' && (
             <div className="space-y-8">
               
+              {/* Quick Actions Panel */}
+              <section className="glass-panel rounded-2xl border border-slate-850 bg-slate-900/40 p-6 space-y-4">
+                <div>
+                  <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-400">Today's Site Actions</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Quick access triggers for on-site operations</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUpdDate(new Date().toISOString().split('T')[0]);
+                      setUpdLabor(1);
+                      setUpdWorkCompleted('');
+                      setUpdDelays('None');
+                      setUpdRemarks('');
+                      setProactivePhotosList([]);
+                      if (!selectedProjId && projects.length > 0) {
+                        setSelectedProjId(projects[0].id);
+                      }
+                      setShowDailyUpdateModal(true);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-sky-500/25 bg-sky-500/5 text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/40 transition-all text-center space-y-2 group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-sky-500/10 text-sky-400 group-hover:scale-110 transition-transform">
+                      <Camera className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs font-bold">Progress Update</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveHub('workforce');
+                      setWorkforceSubTab('attendance');
+                    }}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-amber-500/25 bg-amber-500/5 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40 transition-all text-center space-y-2 group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform">
+                      <UserCheck className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs font-bold">Mark Attendance</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCostItem('');
+                      setCostAmount('');
+                      setCostCategory('Materials');
+                      setCostStatus('Pending');
+                      setCostInvoiceUrl('');
+                      if (projects.length > 0 && !selectedProjId) {
+                        setSelectedProjId(projects[0].id);
+                      }
+                      setShowCostModal(true);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-rose-500/25 bg-rose-500/5 text-rose-455 hover:bg-rose-500/10 hover:border-rose-500/40 transition-all text-center space-y-2 group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-rose-500/10 text-rose-400 group-hover:scale-110 transition-transform">
+                      <IndianRupee className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs font-bold">Add Expense</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMatName('');
+                      setMatQty('');
+                      setMatVendor('');
+                      setMatRate('');
+                      setMatInvoiceUrl('');
+                      if (projects.length > 0 && !selectedProjId) {
+                        setSelectedProjId(projects[0].id);
+                      }
+                      setShowMaterialModal(true);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-violet-500/25 bg-violet-500/5 text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/40 transition-all text-center space-y-2 group cursor-pointer"
+                  >
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-violet-500/10 text-violet-400 group-hover:scale-110 transition-transform">
+                      <Package className="h-5 w-5" />
+                    </div>
+                    <span className="text-xs font-bold">Log Materials</span>
+                  </button>
+                </div>
+
+                {/* Pending Requests Alert banner */}
+                {(() => {
+                  const pendingReqs = pictureRequests.filter(r => r.status === 'Pending' || r.status === 'Viewed');
+                  if (pendingReqs.length === 0) return null;
+                  return (
+                    <div className="border border-amber-500/20 bg-amber-500/5 text-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <Bell className="h-5 w-5 text-amber-500 shrink-0 animate-pulse" />
+                        <div>
+                          <h4 className="font-bold text-xs sm:text-sm text-white">Pending Picture Requests ({pendingReqs.length})</h4>
+                          <p className="text-[10.5px] text-slate-400 mt-0.5">Clients have requested site photos for active milestones.</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const firstReq = pendingReqs[0];
+                          setSelectedProjId(firstReq.projectId);
+                          const found = projects.find(p => p.id === firstReq.projectId);
+                          if (found) setSelectedProject(found);
+                          setActiveHub('sites');
+                          setProjectSubTab('photos');
+                        }}
+                        className="rounded-lg bg-amber-500 hover:bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-slate-950 transition-all shrink-0"
+                      >
+                        View Requests
+                      </button>
+                    </div>
+                  );
+                })()}
+              </section>
+              
               {/* Core metrics cards */}
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Total Clients</p>
-                  <h3 className="mt-2 text-2xl font-extrabold text-white">{totalClientsCount}</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Active business accounts</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveHub('sites');
+                    setSelectedProject(null);
+                    setSitesSubTab('projects');
+                    setOverviewTasksView(false);
+                  }}
+                  className="glass-panel rounded-xl p-5 shadow-sm text-left relative overflow-hidden transition-all hover:scale-[1.02] hover:-translate-y-0.5 border border-sky-500/20 hover:border-sky-500/50 bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-sky-950/15 group cursor-pointer"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-sky-400 group-hover:text-sky-300 transition-colors">Projects</p>
+                  <h3 className="mt-2 text-3xl font-extrabold text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]">{activeProjectsCount}</h3>
+                  <p className="text-[9px] text-slate-400 mt-2">Ongoing projects</p>
+                  <div className="absolute top-4 right-4 h-8 w-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center border border-sky-500/15 group-hover:scale-115 transition-transform">
+                    <ClipboardList className="h-4.5 w-4.5 animate-pulse-soft" />
+                  </div>
+                </button>
 
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Active Projects</p>
-                  <h3 className="mt-2 text-2xl font-extrabold text-sky-400">{activeProjectsCount}</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Ongoing site operations</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveHub('workforce');
+                    setWorkforceSubTab('labours');
+                    setOverviewTasksView(false);
+                  }}
+                  className="glass-panel rounded-xl p-5 shadow-sm text-left relative overflow-hidden transition-all hover:scale-[1.02] hover:-translate-y-0.5 border border-emerald-500/20 hover:border-emerald-500/50 bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-emerald-950/15 group cursor-pointer"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-450 group-hover:text-emerald-300 transition-colors">Active Labours</p>
+                  <h3 className="mt-2 text-3xl font-extrabold text-emerald-450 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">{projectLaborCount}</h3>
+                  <p className="text-[9px] text-slate-400 mt-2">Workers active on list</p>
+                  <div className="absolute top-4 right-4 h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-455 flex items-center justify-center border border-emerald-500/15 group-hover:scale-115 transition-transform">
+                    <HardHat className="h-4.5 w-4.5" />
+                  </div>
+                </button>
 
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Pending Tasks</p>
-                  <h3 className="mt-2 text-2xl font-extrabold text-amber-500">{pendingTasksCount}</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Milestones in progress</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOverviewTasksView(!overviewTasksView);
+                  }}
+                  className={`glass-panel rounded-xl p-5 shadow-sm text-left relative overflow-hidden transition-all hover:scale-[1.02] hover:-translate-y-0.5 border bg-gradient-to-br from-slate-900/90 via-slate-900/60 transition-all ${
+                    overviewTasksView 
+                      ? 'border-amber-500 bg-amber-950/20 shadow-md shadow-amber-500/10' 
+                      : 'border-amber-500/20 hover:border-amber-500/50 to-amber-950/15'
+                  } group cursor-pointer`}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400 group-hover:text-amber-300 transition-colors">Pending Tasks</p>
+                  <h3 className="mt-2 text-3xl font-extrabold text-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]">{pendingTasksCount}</h3>
+                  <p className="text-[9px] text-slate-400 mt-2">{overviewTasksView ? 'Click to show reports' : 'Click to view assigned tasks'}</p>
+                  <div className="absolute top-4 right-4 h-8 w-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/15 group-hover:scale-115 transition-transform">
+                    <Calendar className="h-4.5 w-4.5" />
+                  </div>
+                </button>
 
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Active Labours</p>
-                  <h3 className="mt-2 text-2xl font-extrabold text-emerald-400">{projectLaborCount}</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Workers active on list</p>
-                </div>
-
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Materials spent</p>
-                  <h3 className="mt-2 text-xl font-extrabold text-indigo-400 font-mono">₹{materialsCostTotal.toLocaleString('en-IN')}</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Aggregated supplies</p>
-                </div>
-
-                <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Average Progress</p>
-                  <h3 className="mt-2 text-2xl font-extrabold text-white">{avgProgress}%</h3>
-                  <p className="text-[9px] text-slate-500 mt-2">Checklists completion</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveHub('financials');
+                    setFinancialsSubTab('aggregated');
+                    setOverviewTasksView(false);
+                  }}
+                  className="glass-panel rounded-xl p-5 shadow-sm text-left relative overflow-hidden transition-all hover:scale-[1.02] hover:-translate-y-0.5 border border-rose-500/20 hover:border-rose-500/50 bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-rose-950/15 group cursor-pointer"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-rose-455 group-hover:text-rose-300 transition-colors">Materials Spent</p>
+                  <h3 className="mt-2 text-2xl font-extrabold text-rose-455 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)] font-mono">₹{materialsCostTotal.toLocaleString('en-IN')}</h3>
+                  <p className="text-[9px] text-slate-400 mt-2">Aggregated supplies</p>
+                  <div className="absolute top-4 right-4 h-8 w-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center border border-rose-500/15 group-hover:scale-115 transition-transform">
+                    <IndianRupee className="h-4.5 w-4.5" />
+                  </div>
+                </button>
 
               </section>
 
-              {/* Overview visual reports charts */}
-              <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                
-                {/* Cost allocation bar chart */}
-                <div className="glass-panel rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[300px]">
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Expenses Allocation (INR)</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Aggregated costs across your client projects</p>
+              {/* Overview visual reports charts OR Tasks Assigned to Contractor */}
+              {!overviewTasksView ? (
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  
+                  {/* Cost allocation bar chart */}
+                  <div className="glass-panel rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[300px] border border-slate-800">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Expenses Allocation (INR)</h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Aggregated costs across your client projects</p>
+                    </div>
+                    <div className="h-60 w-full mt-4 text-slate-900 font-mono text-xs">
+                      {chartCostsData.length === 0 ? (
+                        <p className="text-xs text-slate-550 text-center py-12">No expense lines registered yet.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartCostsData}>
+                            <XAxis dataKey="category" stroke="#64748b" fontSize={10} />
+                            <YAxis stroke="#64748b" fontSize={10} />
+                            <Tooltip formatter={(v) => [`₹${v.toLocaleString('en-IN')}`, 'Spent']} />
+                            <Bar dataKey="Amount" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
                   </div>
-                  <div className="h-60 w-full mt-4 text-slate-900 font-mono text-xs">
-                    {chartCostsData.length === 0 ? (
-                      <p className="text-xs text-slate-550 text-center py-12">No expense lines registered yet.</p>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartCostsData}>
-                          <XAxis dataKey="category" stroke="#64748b" fontSize={10} />
-                          <YAxis stroke="#64748b" fontSize={10} />
-                          <Tooltip formatter={(v) => [`₹${v.toLocaleString('en-IN')}`, 'Spent']} />
-                          <Bar dataKey="Amount" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                </div>
 
-                {/* Labor trend line chart */}
-                <div className="glass-panel rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[300px]">
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Daily Labour Staffing Curve</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Workforce presence timeline from reports</p>
+                  {/* Labor trend line chart */}
+                  <div className="glass-panel rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[300px] border border-slate-800">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Daily Labour Staffing Curve</h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Workforce presence timeline from reports</p>
+                    </div>
+                    <div className="h-60 w-full mt-4 text-slate-900 font-mono text-xs">
+                      {chartLaborTrend.length === 0 ? (
+                        <p className="text-xs text-slate-555 text-center py-12">Log site updates to generate graphs.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartLaborTrend}>
+                            <XAxis dataKey="date" stroke="#64748b" fontSize={10} />
+                            <YAxis stroke="#64748b" fontSize={10} />
+                            <Tooltip formatter={(v) => [`${v} Workers`, 'Laborers']} />
+                            <Line type="monotone" dataKey="Laborers" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
                   </div>
-                  <div className="h-60 w-full mt-4 text-slate-900 font-mono text-xs">
-                    {chartLaborTrend.length === 0 ? (
-                      <p className="text-xs text-slate-555 text-center py-12">Log site updates to generate graphs.</p>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartLaborTrend}>
-                          <XAxis dataKey="date" stroke="#64748b" fontSize={10} />
-                          <YAxis stroke="#64748b" fontSize={10} />
-                          <Tooltip formatter={(v) => [`${v} Workers`, 'Laborers']} />
-                          <Line type="monotone" dataKey="Laborers" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
-                </div>
 
-              </section>
+                </section>
+              ) : (
+                <section className="glass-panel rounded-2xl p-6 shadow-sm space-y-4 border border-amber-500/25 bg-slate-900/20 relative overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div>
+                      <h4 className="text-md font-bold text-white flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-amber-500" />
+                        Tasks Assigned to You
+                      </h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Timeline milestones and deliverables needing your attention</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOverviewTasksView(false)}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 hover:border-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                    >
+                      Show Charts
+                    </button>
+                  </div>
+
+                  {contractorPendingTasks.length === 0 ? (
+                    <div className="text-center py-12 text-slate-500 font-semibold text-xs space-y-3">
+                      <div className="h-10 w-10 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto border border-emerald-500/20">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </div>
+                      <p>All caught up! No pending tasks assigned to you.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-850 max-h-[450px] overflow-y-auto pr-1">
+                      {contractorPendingTasks.map((task) => (
+                        <div key={task.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group transition-colors hover:bg-slate-900/10 rounded-lg px-2">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-xs sm:text-sm text-white group-hover:text-amber-400 transition-colors">{task.task}</span>
+                              <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded tracking-wider ${
+                                task.priority === 'High' 
+                                  ? 'bg-rose-500/15 text-rose-455 border border-rose-500/10' 
+                                  : task.priority === 'Medium' 
+                                    ? 'bg-amber-500/15 text-amber-450 border border-amber-500/10' 
+                                    : 'bg-sky-500/15 text-sky-450 border border-sky-500/10'
+                              }`}>
+                                {task.priority} Priority
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                              <span className="font-semibold text-sky-400">{task.projectName || 'Project'}</span>
+                              <span>•</span>
+                              <span className="font-mono">Deadline: {task.deadline}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-450 font-semibold">Progress: {task.progress}%</span>
+                              <div className="w-24 bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                                <div className="bg-sky-500 h-full transition-all duration-500" style={{ width: `${task.progress}%` }} />
+                              </div>
+                            </div>
+                            
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await firebaseService.updateTimelineProgress(task.id, 100);
+                                  syncAllData();
+                                  alert(`Task "${task.task}" completed!`);
+                                } catch (err) {
+                                  alert("Failed to update task.");
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all shadow-md shadow-emerald-500/15 cursor-pointer"
+                            >
+                              Mark Complete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           )}
-
           {/* TAB 2: CLIENT DIRECTORY */}
-          {activeTab === 'clients' && (
+          {activeHub === 'sites' && selectedProject === null && sitesSubTab === 'clients' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-900 pb-3 gap-3">
                 <div>
                   <h3 className="text-md font-bold text-white">Clients Registry</h3>
                   <p className="text-[10px] text-slate-450">Directory of user profiles representing private project tenants</p>
+                </div>
+                
+                {/* Client Status Filters */}
+                <div className="flex items-center gap-1.5 bg-slate-950/20 p-1 rounded-xl border border-slate-800/80">
+                  <span className="text-[9px] uppercase font-extrabold tracking-wider text-slate-450 px-2">Show:</span>
+                  {['All', 'Active', 'Finished'].map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setClientFilter(status)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        clientFilter === status
+                          ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
+                          : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1880,42 +2387,105 @@ export default function ContractorDashboard() {
                       <th className="py-3 px-2">Login Email</th>
                       <th className="py-3 px-2">Phone</th>
                       <th className="py-3 px-2">Linked Site Project</th>
+                      <th className="py-3 px-2">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-850">
-                    {allClients.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-8 text-center text-slate-500 font-semibold">
-                          No client profiles registered. Click "Add Client Account" above.
-                        </td>
-                      </tr>
-                    ) : (
-                      allClients.map((client) => {
-                         const linkedProj = projects.find(p => p.clientId === client.id || p.clientId === client.uid);
+                    {(() => {
+                      const filteredClients = allClients.filter(c => {
+                        const s = c.status || 'Active';
+                        if (clientFilter === 'All') return true;
+                        return s === clientFilter;
+                      });
+
+                      if (filteredClients.length === 0) {
                         return (
-                          <tr key={client.id || client.uid} className="hover:bg-slate-900/30">
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-slate-500 font-semibold">
+                              No client profiles match this filter.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filteredClients.map((client) => {
+                        const linkedProj = projects.find(p => p.clientId === client.id || p.clientId === client.uid);
+                        const clientStatus = client.status || 'Active';
+                        const isFinished = clientStatus === 'Finished';
+                        
+                        return (
+                          <tr 
+                            key={client.id || client.uid} 
+                            className={`hover:bg-slate-900/30 transition-opacity duration-250 ${
+                              isFinished && clientFilter === 'All' ? 'opacity-40' : ''
+                            }`}
+                          >
                             <td className="py-3.5 px-2 font-semibold text-white flex items-center gap-2">
-                              <span className="h-2 w-2 rounded-full bg-emerald-450" />
-                              {client.name}
+                              <span className={`h-2 w-2 rounded-full ${isFinished ? 'bg-slate-500' : 'bg-emerald-450'}`} />
+                              {linkedProj ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedProjId(linkedProj.id);
+                                    setSelectedProject(linkedProj);
+                                    setActiveHub('sites');
+                                    setProjectSubTab('updates');
+                                  }}
+                                  className="text-left font-semibold text-white hover:text-sky-400 hover:underline focus:outline-none cursor-pointer"
+                                  title="Go to site project profile"
+                                >
+                                  {client.name}
+                                </button>
+                              ) : (
+                                <span>{client.name}</span>
+                              )}
                             </td>
                             <td className="py-3.5 px-2 text-slate-300 font-mono">{client.email}</td>
                             <td className="py-3.5 px-2 text-slate-400">{client.phone}</td>
                             <td className="py-3.5 px-2 font-semibold text-sky-400">
                               {linkedProj ? (
-                                <span className="hover:underline cursor-pointer" onClick={() => {
-                                  setSelectedProjId(linkedProj.id);
-                                  setActiveTab('projects');
-                                }}>
+                                <button
+                                  type="button"
+                                  className="hover:underline cursor-pointer focus:outline-none" 
+                                  onClick={() => {
+                                    setSelectedProjId(linkedProj.id);
+                                    setSelectedProject(linkedProj);
+                                    setActiveHub('sites');
+                                    setProjectSubTab('updates');
+                                  }}
+                                >
                                   {linkedProj.projectName}
-                                </span>
+                                </button>
                               ) : (
                                 <span className="text-slate-500">Unlinked</span>
                               )}
                             </td>
+                            <td className="py-3.5 px-2">
+                              <select
+                                value={clientStatus}
+                                onChange={async (e) => {
+                                  try {
+                                    const nextVal = e.target.value;
+                                    await firebaseService.updateClientStatus(client.id || client.uid, nextVal);
+                                    syncAllData();
+                                  } catch (err) {
+                                    alert("Failed to update client status.");
+                                  }
+                                }}
+                                className={`text-[10px] font-bold rounded-lg px-2 py-1 border focus:outline-none cursor-pointer transition-colors ${
+                                  clientStatus === 'Active'
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                    : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                                }`}
+                              >
+                                <option value="Active" className="bg-slate-950 text-emerald-400 font-bold">Active</option>
+                                <option value="Finished" className="bg-slate-950 text-slate-450 font-bold">Finished</option>
+                              </select>
+                            </td>
                           </tr>
                         );
-                      })
-                    )}
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -1923,7 +2493,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 3: PROJECTS LIST */}
-          {activeTab === 'projects' && (
+          {activeHub === 'sites' && selectedProject === null && sitesSubTab === 'projects' && (
             <div className="space-y-6">
               <div className="border-b border-slate-900 pb-3">
                 <h3 className="text-md font-bold text-white">Assigned Projects Workspaces</h3>
@@ -1970,7 +2540,7 @@ export default function ContractorDashboard() {
                                   setEditBudgetAmount(proj.budget);
                                   setShowEditBudgetModal(true);
                                 }}
-                                className="p-1 hover:bg-slate-800 text-slate-450 hover:text-sky-400 rounded transition-colors"
+                                className="p-1 hover:bg-slate-800 text-slate-455 hover:text-sky-400 rounded transition-colors"
                                 title="Edit Total Estimate"
                               >
                                 <Pencil className="h-3 w-3" />
@@ -1982,7 +2552,9 @@ export default function ContractorDashboard() {
                             <button
                               onClick={() => {
                                   setSelectedProjId(proj.id);
-                                  setActiveTab('updates');
+                                  setSelectedProject(proj);
+                                  setActiveHub('sites');
+                                  setProjectSubTab('updates');
                               }}
                               className="text-sky-400 font-bold hover:underline"
                             >
@@ -1999,7 +2571,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 4: DAILY SITE UPDATES */}
-          {activeTab === 'updates' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'updates' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center border-b border-slate-900 pb-3">
                 <div>
@@ -2009,20 +2581,17 @@ export default function ContractorDashboard() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
+                      setUpdDate(new Date().toISOString().split('T')[0]);
+                      setUpdLabor(1);
+                      setUpdWorkCompleted('');
+                      setUpdDelays('None');
+                      setUpdRemarks('');
                       setProactivePhotosList([]);
-                      setProactiveCaption('');
-                      setProactiveCategory('General');
-                      setShowProactiveUpdateModal(true);
+                      setShowDailyUpdateModal(true);
                     }}
-                    className="flex items-center gap-1 rounded border border-emerald-800 bg-emerald-950/20 text-emerald-400 hover:bg-emerald-950/40 px-3 py-1.5 text-xs font-bold transition-all"
+                    className="flex items-center gap-1.5 rounded bg-sky-500 hover:bg-sky-600 px-3.5 py-1.5 text-xs font-bold text-white transition-colors"
                   >
-                    <Camera className="h-4 w-4" /> Send Update Pictures
-                  </button>
-                  <button
-                    onClick={() => setShowDailyUpdateModal(true)}
-                    className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition-colors"
-                  >
-                    <Plus className="h-4 w-4" /> Log Daily Update
+                    <Plus className="h-4 w-4" /> Progress Update
                   </button>
                 </div>
               </div>
@@ -2039,13 +2608,29 @@ export default function ContractorDashboard() {
                           <span className="text-slate-500">•</span>
                           <span className="text-xs text-slate-400">{upd.date}</span>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-bold text-sky-400 bg-sky-500/10 px-2.5 py-0.5 rounded">Laborers: {upd.labourCount || upd.labour_count || 0}</span>
                           {upd.delays && upd.delays !== 'None' && (
                             <span className="text-xs font-bold text-rose-455 bg-rose-500/10 px-2.5 py-0.5 rounded flex items-center gap-1">
                               <AlertTriangle className="h-3 w-3" /> Delay: {upd.delays}
                             </span>
                           )}
+                          <div className="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-2.5">
+                            <button
+                              onClick={() => handleEditDailyUpdate(upd)}
+                              className="p-1 rounded bg-slate-805 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-800"
+                              title="Edit Update log"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDailyUpdate(upd.id)}
+                              className="p-1 rounded bg-slate-805 hover:bg-red-950/40 text-slate-400 hover:text-red-400 transition-all border border-slate-800 hover:border-red-900/30"
+                              title="Delete Update log"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -2081,7 +2666,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 5: TIMELINE PHOTOS - DATED/TIMED FEED */}
-          {activeTab === 'photos' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'photos' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b border-slate-900 pb-3">
                 <div>
@@ -2158,11 +2743,73 @@ export default function ContractorDashboard() {
                   ))}
                 </div>
               )}
+
+              {/* Merged Clients Photo Requests Section */}
+              <div className="pt-8 border-t border-slate-850 space-y-6">
+                <div>
+                  <h3 className="text-md font-bold text-white">Clients' Photo Requests</h3>
+                  <p className="text-xs text-slate-455 mt-0.5">Manage, view, and fulfill active picture requests from this client</p>
+                </div>
+                {(() => {
+                  const projectReqs = pictureRequests.filter(r => r.projectId === selectedProjId);
+                  if (projectReqs.length === 0) {
+                    return <p className="text-xs text-slate-500 py-4">No picture requests received for this project.</p>;
+                  }
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {projectReqs.map((req) => {
+                        const client = allClients.find(c => c.id === req.clientId || c.uid === req.clientId);
+                        return (
+                          <div
+                            key={req.id}
+                            onClick={() => handleOpenRequestDetails(req)}
+                            className="rounded-xl border border-slate-800 bg-slate-950/20 p-5 hover:border-sky-500 hover:bg-sky-500/5 cursor-pointer transition-all space-y-4"
+                          >
+                            <div className="flex justify-between items-start gap-2">
+                              <div>
+                                <h4 className="font-extrabold text-sm text-white">{req.title}</h4>
+                                <span className="text-[10px] text-slate-400 font-mono block mt-1">Area: {req.area}</span>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase ${
+                                  req.priority === 'High Priority' || req.priority === 'Urgent'
+                                    ? 'bg-rose-500/10 text-rose-455 border border-rose-500/20 animate-pulse'
+                                    : 'bg-slate-800 text-slate-300'
+                                }`}>
+                                  {req.priority}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
+                                  req.status === 'Completed'
+                                    ? 'bg-emerald-500/10 text-emerald-450 border-emerald-500/20'
+                                    : req.status === 'Photo Uploaded'
+                                      ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                                      : req.status === 'Viewed'
+                                        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                        : 'bg-amber-500/10 text-amber-455 border-amber-500/20'
+                                }`}>
+                                  {req.status}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-slate-350 line-clamp-2 leading-relaxed">{req.description}</p>
+                            
+                            <div className="pt-3 border-t border-slate-900/60 flex justify-between items-center text-[10px] text-slate-500">
+                              <span>Client: <strong className="text-slate-300">{client ? client.name : 'Unknown Client'}</strong></span>
+                              <span className="font-mono">{new Date(req.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
           {/* TAB 6: LABOURS DIRECTORY - SEARCH, FILTERS, ADD LABOUR */}
-          {activeTab === 'labours' && (
+          {activeHub === 'workforce' && workforceSubTab === 'labours' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-900 pb-4">
                 <div>
@@ -2278,7 +2925,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 7: ATTENDANCE TRACKER - ENTRY FORM */}
-          {activeTab === 'attendance' && (
+          {activeHub === 'workforce' && workforceSubTab === 'attendance' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
               <div className="border-b border-slate-900 pb-4">
                 <h3 className="text-md font-bold text-white">Labour Attendance Tracker</h3>
@@ -2412,8 +3059,33 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 8: MATERIALS LEDGER */}
-          {activeTab === 'materials' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'expenses' && expensesSubTab === 'materials' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+              {/* Client Expenses Inner Switcher */}
+              <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar pb-1 mb-6">
+                {[
+                  { id: 'costs', label: 'Costs & Bills', icon: IndianRupee },
+                  { id: 'materials', label: 'Materials Log', icon: Package },
+                  { id: 'payments', label: 'Payment Stages', icon: CreditCard }
+                ].map(sub => {
+                  const Icon = sub.icon;
+                  const isActive = expensesSubTab === sub.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      onClick={() => setExpensesSubTab(sub.id)}
+                      className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition-all ${
+                        isActive 
+                          ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                          : 'border-transparent text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {sub.label}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="flex justify-between items-center border-b border-slate-900 pb-3">
                 <div>
                   <h3 className="text-md font-bold text-white">Materials Ledger (INR)</h3>
@@ -2474,7 +3146,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 9: TIMELINE MILESTONES */}
-          {activeTab === 'timeline' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'timeline' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
               <div className="flex justify-between items-center border-b border-slate-900 pb-3">
                 <div>
@@ -2546,8 +3218,33 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 10: COST MANAGEMENT */}
-          {activeTab === 'costs' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'expenses' && expensesSubTab === 'costs' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+              {/* Client Expenses Inner Switcher */}
+              <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar pb-1 mb-6">
+                {[
+                  { id: 'costs', label: 'Costs & Bills', icon: IndianRupee },
+                  { id: 'materials', label: 'Materials Log', icon: Package },
+                  { id: 'payments', label: 'Payment Stages', icon: CreditCard }
+                ].map(sub => {
+                  const Icon = sub.icon;
+                  const isActive = expensesSubTab === sub.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      onClick={() => setExpensesSubTab(sub.id)}
+                      className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition-all ${
+                        isActive 
+                          ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                          : 'border-transparent text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {sub.label}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="flex justify-between items-center border-b border-slate-900 pb-3">
                 <div>
                   <h3 className="text-md font-bold text-white">Cost Accounts Ledger</h3>
@@ -2626,8 +3323,33 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 11: PAYMENT STAGES */}
-          {activeTab === 'payments' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'expenses' && expensesSubTab === 'payments' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-6">
+              {/* Client Expenses Inner Switcher */}
+              <div className="flex border-b border-slate-850 overflow-x-auto no-scrollbar pb-1 mb-6">
+                {[
+                  { id: 'costs', label: 'Costs & Bills', icon: IndianRupee },
+                  { id: 'materials', label: 'Materials Log', icon: Package },
+                  { id: 'payments', label: 'Payment Stages', icon: CreditCard }
+                ].map(sub => {
+                  const Icon = sub.icon;
+                  const isActive = expensesSubTab === sub.id;
+                  return (
+                    <button
+                      key={sub.id}
+                      onClick={() => setExpensesSubTab(sub.id)}
+                      className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition-all ${
+                        isActive 
+                          ? 'border-sky-500 text-sky-400 font-bold bg-sky-500/5' 
+                          : 'border-transparent text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {sub.label}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="flex justify-between items-center border-b border-slate-900 pb-4">
                 <div>
                   <h3 className="text-md font-bold text-white">Project Payment Stages</h3>
@@ -2773,7 +3495,7 @@ export default function ContractorDashboard() {
           )}
 
           {/* TAB 11: DOCUMENT CENTER */}
-          {activeTab === 'documents' && (
+          {activeHub === 'sites' && selectedProject !== null && projectSubTab === 'documents' && (
             <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
               <div className="flex justify-between items-center border-b border-slate-900 pb-3">
                 <div>
@@ -2868,6 +3590,204 @@ export default function ContractorDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* HUB 4: FINANCIALS HUB (GLOBAL VIEW) */}
+          {activeHub === 'financials' && financialsSubTab === 'aggregated' && (
+            <div className="space-y-6">
+              {/* Aggregated Overview Cards */}
+              {(() => {
+                const totalBudgetCombined = projects.reduce((sum, p) => sum + (p.budget || 0), 0);
+                const totalSpentCombined = globalCosts.reduce((sum, c) => sum + (c.amount || 0), 0);
+                const totalPaidCombined = globalStages.reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+                const totalDueCombined = globalStages.reduce((sum, s) => sum + (s.stageAmount || 0), 0) - totalPaidCombined;
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Combined Budgets</p>
+                      <h3 className="mt-2 text-xl font-extrabold text-sky-400 font-mono">₹{totalBudgetCombined.toLocaleString('en-IN')}</h3>
+                      <p className="text-[9px] text-slate-500 mt-2">Sum of all active projects</p>
+                    </div>
+
+                    <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Total Actual Expenses</p>
+                      <h3 className="mt-2 text-xl font-extrabold text-rose-450 font-mono">₹{totalSpentCombined.toLocaleString('en-IN')}</h3>
+                      <p className="text-[9px] text-slate-500 mt-2">All logged costs and supplies</p>
+                    </div>
+
+                    <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Payments Cleared</p>
+                      <h3 className="mt-2 text-xl font-extrabold text-emerald-400 font-mono">₹{totalPaidCombined.toLocaleString('en-IN')}</h3>
+                      <p className="text-[9px] text-slate-500 mt-2">Stage payouts received from clients</p>
+                    </div>
+
+                    <div className="glass-panel rounded-xl p-4 shadow-sm relative overflow-hidden">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-455">Outstanding Balance</p>
+                      <h3 className="mt-2 text-xl font-extrabold text-amber-500 font-mono">₹{totalDueCombined.toLocaleString('en-IN')}</h3>
+                      <p className="text-[9px] text-slate-500 mt-2">Stage values pending client transfer</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Master Consolidated Table */}
+              <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+                <div>
+                  <h3 className="text-md font-bold text-white">Aggregated Business Sheet</h3>
+                  <p className="text-[10px] text-slate-450">Financial totals organized by client project site</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-900 text-slate-500 uppercase font-bold tracking-wider">
+                        <th className="py-3 px-2">Project Site</th>
+                        <th className="py-3 px-2">Client Profile</th>
+                        <th className="py-3 px-2">Site Budget</th>
+                        <th className="py-3 px-2 text-rose-400">Total Spent</th>
+                        <th className="py-3 px-2 text-emerald-400">Paid Amount</th>
+                        <th className="py-3 px-2 text-amber-500">Balance Owed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850">
+                      {projects.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500 font-semibold">
+                            No active project sites logged.
+                          </td>
+                        </tr>
+                      ) : (
+                        projects.map(proj => {
+                          const client = allClients.find(c => c.id === proj.clientId || c.uid === proj.clientId);
+                          const projCosts = globalCosts.filter(c => c.projectId === proj.id || c.project_id === proj.id);
+                          const projStages = globalStages.filter(s => s.projectId === proj.id || s.project_id === proj.id);
+                          
+                          const totalSpent = projCosts.reduce((sum, c) => sum + c.amount, 0);
+                          const totalPaid = projStages.reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+                          const totalDue = projStages.reduce((sum, s) => sum + (s.stageAmount || 0), 0) - totalPaid;
+                          
+                          return (
+                            <tr key={proj.id} className="hover:bg-slate-900/30">
+                              <td className="py-3.5 px-2 font-extrabold text-white">
+                                <span className="hover:underline cursor-pointer text-sky-400" onClick={() => {
+                                  setSelectedProjId(proj.id);
+                                  setSelectedProject(proj);
+                                  setActiveHub('sites');
+                                  setProjectSubTab('expenses');
+                                  setExpensesSubTab('costs');
+                                }}>
+                                  {proj.projectName}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-2 text-slate-300 font-semibold">{client ? client.name : 'Unlinked'}</td>
+                              <td className="py-3.5 px-2 text-sky-400 font-mono">₹{proj.budget ? proj.budget.toLocaleString('en-IN') : 0}</td>
+                              <td className="py-3.5 px-2 text-rose-400 font-mono font-bold">₹{totalSpent.toLocaleString('en-IN')}</td>
+                              <td className="py-3.5 px-2 text-emerald-400 font-mono">₹{totalPaid.toLocaleString('en-IN')}</td>
+                              <td className="py-3.5 px-2 text-amber-500 font-mono">₹{totalDue.toLocaleString('en-IN')}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeHub === 'financials' && financialsSubTab === 'materials' && (
+            <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-md font-bold text-white">Global Materials Ledger</h3>
+                <p className="text-[10px] text-slate-455">All materials bought across all active construction sites</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-900 text-slate-500 uppercase font-bold tracking-wider">
+                      <th className="py-3 px-2">Material Name</th>
+                      <th className="py-3 px-2">Project Site</th>
+                      <th className="py-3 px-2">Qty</th>
+                      <th className="py-3 px-2">Rate</th>
+                      <th className="py-3 px-2">Total Amount</th>
+                      <th className="py-3 px-2">Vendor / Supplier</th>
+                      <th className="py-3 px-2">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {globalMaterials.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-500">No materials logged across any project.</td>
+                      </tr>
+                    ) : (
+                      globalMaterials.map(m => (
+                        <tr key={m.id} className="hover:bg-slate-900/30">
+                          <td className="py-3.5 px-2 font-bold text-white">{m.name}</td>
+                          <td className="py-3.5 px-2 text-sky-400 font-semibold">{m.projectName}</td>
+                          <td className="py-3.5 px-2 text-slate-300">{m.quantity}</td>
+                          <td className="py-3.5 px-2 text-slate-400 font-mono">₹{m.rate?.toLocaleString('en-IN')}</td>
+                          <td className="py-3.5 px-2 text-emerald-400 font-mono font-bold">₹{m.total?.toLocaleString('en-IN')}</td>
+                          <td className="py-3.5 px-2 text-slate-400">{m.vendor}</td>
+                          <td className="py-3.5 px-2 text-slate-500 font-mono">{m.date || m.uploadedAt?.split('T')[0] || ''}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeHub === 'financials' && financialsSubTab === 'stages' && (
+            <div className="glass-panel rounded-2xl p-6 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-md font-bold text-white">Master Payment Milestones</h3>
+                <p className="text-[10px] text-slate-455">Payment schedule and statuses for all client projects</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-900 text-slate-500 uppercase font-bold tracking-wider">
+                      <th className="py-3 px-2">Stage Milestone</th>
+                      <th className="py-3 px-2">Project Site</th>
+                      <th className="py-3 px-2">Amount</th>
+                      <th className="py-3 px-2 text-emerald-400">Paid</th>
+                      <th className="py-3 px-2">Due Date</th>
+                      <th className="py-3 px-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-850">
+                    {globalStages.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-500">No payment stages configured.</td>
+                      </tr>
+                    ) : (
+                      globalStages.map(s => (
+                        <tr key={s.id} className="hover:bg-slate-900/30">
+                          <td className="py-3.5 px-2 font-bold text-white">
+                            {s.stageName}
+                            {s.stageDescription && <span className="block text-[10px] font-normal text-slate-400 mt-0.5">{s.stageDescription}</span>}
+                          </td>
+                          <td className="py-3.5 px-2 text-sky-400 font-semibold">{s.projectName}</td>
+                          <td className="py-3.5 px-2 text-white font-mono">₹{s.stageAmount?.toLocaleString('en-IN')}</td>
+                          <td className="py-3.5 px-2 text-emerald-400 font-mono">₹{s.paidAmount?.toLocaleString('en-IN')}</td>
+                          <td className="py-3.5 px-2 text-slate-400 font-mono">{s.dueDate}</td>
+                          <td className="py-3.5 px-2">
+                            <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                              s.status === 'Paid' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' :
+                              s.status === 'Overdue' || s.status === 'Overdue Alarm' ? 'bg-rose-500/10 border border-rose-500/20 text-rose-455 animate-pulse' :
+                              'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                            }`}>
+                              {s.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -3224,16 +4144,62 @@ export default function ContractorDashboard() {
         </div>
       )}
 
-      {/* MODAL 3: DAILY SITE UPDATE FORM */}
+      {/* MODAL 3: PROGRESS UPDATE FORM */}
       {showDailyUpdateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-white text-md">Daily Site Update Form</h3>
-              <button onClick={() => setShowDailyUpdateModal(false)} className="text-slate-450 hover:text-white font-bold">&times;</button>
+              <div>
+                <h3 className="font-bold text-white text-md">Progress Update</h3>
+                <p className="text-[10px] text-slate-455 mt-0.5">Post work logs and progress photos directly to client timeline</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowDailyUpdateModal(false);
+                  setUpdLabor(1);
+                  setUpdWorkCompleted('');
+                  setUpdDelays('None');
+                  setUpdRemarks('');
+                  setProactivePhotosList([]);
+                  stopCamera();
+                  if (activeHub === 'overview') {
+                    setSelectedProject(null);
+                  }
+                }} 
+                className="text-slate-450 hover:text-white font-bold"
+              >
+                &times;
+              </button>
             </div>
 
-            <form onSubmit={handleAddDailyUpdate} className="mt-4 space-y-4">
+            <form onSubmit={handleAddDailyUpdate} className="space-y-4">
+              {/* Project Site Selector */}
+              {!selectedProject ? (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Select Site / Client *</label>
+                  <select
+                    required
+                    value={selectedProjId}
+                    onChange={(e) => setSelectedProjId(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                  >
+                    <option value="">-- Choose Project Site --</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} ({p.clientName || p.clientEmail || p.clientId})</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-slate-300">Site Workspace:</span>
+                    <span className="text-xs font-bold text-white">{selectedProject.name}</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-semibold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded">Active</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">Date</label>
@@ -3259,7 +4225,7 @@ export default function ContractorDashboard() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Work Completed</label>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Work Completed *</label>
                 <textarea
                   required
                   placeholder="Describe building milestones achieved today..."
@@ -3297,30 +4263,312 @@ export default function ContractorDashboard() {
                 </div>
               </div>
 
+              {/* Photo Upload Section */}
+              <div className="space-y-3 pt-2 border-t border-slate-800">
+                <label className="block text-[11px] font-bold text-slate-350 uppercase">Attach Progress Photos</label>
+                
+                {/* Upload Method Tabs */}
+                <div className="flex border-b border-slate-800 pb-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoUploadMethod('file');
+                      stopCamera();
+                    }}
+                    className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                      photoUploadMethod === 'file'
+                        ? 'border-sky-500 text-sky-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-350'
+                    }`}
+                  >
+                    Gallery Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoUploadMethod('camera');
+                      startCamera();
+                    }}
+                    className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
+                      photoUploadMethod === 'camera'
+                        ? 'border-sky-500 text-sky-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-350'
+                    }`}
+                  >
+                    Live Camera
+                  </button>
+                </div>
+
+                {photoUploadMethod === 'file' && (
+                  <div className="space-y-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/png, image/jpeg, image/heic, image/webp"
+                      onChange={handleProactiveFileChange}
+                      className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
+                    />
+                    <span className="text-[10px] text-slate-500 block">Upload multiple images from your device.</span>
+                  </div>
+                )}
+
+                {photoUploadMethod === 'camera' && (
+                  <div className="space-y-3">
+                    {cameraError && (
+                      <div className="text-xs text-rose-455 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+                        {cameraError}
+                      </div>
+                    )}
+
+                    {!capturedImage ? (
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center">
+                        {cameraActive ? (
+                          <>
+                            <video
+                              ref={videoRef}
+                              autoPlay
+                              playsInline
+                              className="h-full w-full object-cover"
+                              style={{ transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+                            />
+                            <div className="absolute top-3 left-3 bg-rose-500/80 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
+                              <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                              LIVE CAMERA
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-center p-6 space-y-3">
+                            <Camera className="h-8 w-8 text-slate-500 mx-auto" />
+                            <button
+                              type="button"
+                              onClick={() => startCamera()}
+                              className="px-3.5 py-1.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-bold transition-all"
+                            >
+                              Enable Camera
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+                        <img src={capturedImage} alt="Live preview" className="h-full w-full object-contain" />
+                        <div className="absolute top-3 left-3 bg-sky-500/85 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">
+                          PREVIEW
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-center gap-3">
+                      {cameraActive && !capturedImage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => capturePhoto(videoRef)}
+                            className="flex-1 py-1.5 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Camera className="h-4 w-4" /> Capture Photo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={switchCamera}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                          >
+                            Flip
+                          </button>
+                          <button
+                            type="button"
+                            onClick={stopCamera}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-355 text-xs font-bold transition-all"
+                          >
+                            Stop
+                          </button>
+                        </>
+                      )}
+                      {capturedImage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleAddCapturedPhotoToProactive}
+                            className="flex-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all"
+                          >
+                            Add to Upload List
+                          </button>
+                          <button
+                            type="button"
+                            onClick={retakePhoto}
+                            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                          >
+                            Retake
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selected Photos Previews list */}
+                {proactivePhotosList.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Selected Photos ({proactivePhotosList.length})</span>
+                    <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto bg-slate-950/20 p-2 rounded-lg border border-slate-850">
+                      {proactivePhotosList.map((src, idx) => (
+                        <div key={idx} className="relative aspect-video rounded overflow-hidden border border-slate-800 bg-slate-950 group">
+                          <img src={src} alt="Thumbnail preview" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setProactivePhotosList(prev => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 bg-red-500/80 hover:bg-red-600 rounded-full h-4.5 w-4.5 text-white flex items-center justify-center text-[9px] font-bold transition-colors"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-slate-800 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDailyUpdateModal(false);
+                    setUpdLabor(1);
+                    setUpdWorkCompleted('');
+                    setUpdDelays('None');
+                    setUpdRemarks('');
+                    setProactivePhotosList([]);
+                    stopCamera();
+                    if (activeHub === 'overview') {
+                      setSelectedProject(null);
+                    }
+                  }}
+                  className="flex-1 rounded border border-slate-800 bg-slate-905 py-2.5 text-xs font-bold text-slate-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded bg-sky-500 py-2.5 text-xs font-bold text-white hover:bg-sky-600 shadow-lg"
+                >
+                  Publish Update
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3B: EDIT DAILY SITE UPDATE FORM */}
+      {showEditLogModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Photo Attach Web URL (Optional)</label>
+                <h3 className="font-bold text-white text-md">Edit Progress Update</h3>
+                <p className="text-[10px] text-slate-455 mt-0.5">Modify locked daily log metrics and information</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowEditLogModal(false);
+                  setEditingLogId('');
+                  setEditLogHasPermission(false);
+                }} 
+                className="text-slate-450 hover:text-white font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditDailyUpdate} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Labour Count</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={editLogLaborCount}
+                    onChange={(e) => setEditLogLaborCount(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-305 mb-1">Delays / Issues</label>
+                  <select
+                    value={editLogDelays}
+                    onChange={(e) => setEditLogDelays(e.target.value)}
+                    className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none"
+                  >
+                    <option value="None">None (On Track)</option>
+                    <option value="Weather">Weather Blockage</option>
+                    <option value="Supplies">Material Supply Shortage</option>
+                    <option value="Labor">Labor Shortage</option>
+                    <option value="Permit">Regulatory Inspection Delay</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Work Completed *</label>
+                <textarea
+                  required
+                  placeholder="Describe building milestones achieved today..."
+                  value={editLogWorkCompleted}
+                  onChange={(e) => setEditLogWorkCompleted(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-305 mb-1">Remarks</label>
                 <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/..."
-                  value={updPhotoUrl}
-                  onChange={(e) => setUpdPhotoUrl(e.target.value)}
+                  type="text"
+                  placeholder="e.g. Concrete slab curing"
+                  value={editLogRemarks}
+                  onChange={(e) => setEditLogRemarks(e.target.value)}
                   className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none"
                 />
+              </div>
+
+              {/* Client Permission Checkbox */}
+              <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="editLogHasPermissionCheckbox"
+                    checked={editLogHasPermission}
+                    onChange={(e) => setEditLogHasPermission(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-750 text-sky-500 focus:ring-sky-500 bg-slate-950 h-4 w-4"
+                  />
+                  <label htmlFor="editLogHasPermissionCheckbox" className="text-xs text-slate-300 leading-normal cursor-pointer select-none">
+                    <strong className="text-amber-450 block mb-0.5">🔒 Client Permission Required</strong>
+                    I confirm that I have obtained explicit permission from the client to edit this timeline log.
+                  </label>
+                </div>
               </div>
 
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowDailyUpdateModal(false)}
+                  onClick={() => {
+                    setShowEditLogModal(false);
+                    setEditingLogId('');
+                    setEditLogHasPermission(false);
+                  }}
                   className="flex-1 rounded border border-slate-800 bg-slate-905 py-2 text-xs font-bold text-slate-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 rounded bg-sky-500 py-2 text-xs font-bold text-white hover:bg-sky-600"
+                  disabled={!editLogHasPermission}
+                  className={`flex-1 rounded py-2 text-xs font-bold text-white transition-colors ${
+                    editLogHasPermission ? 'bg-sky-500 hover:bg-sky-600' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
-                  Publish Log
+                  Save Changes
                 </button>
               </div>
             </form>
@@ -3651,6 +4899,25 @@ export default function ContractorDashboard() {
             </div>
 
             <form onSubmit={handleAddMaterial} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Select Project / Client</label>
+                <select
+                  required
+                  value={selectedProjId}
+                  onChange={(e) => setSelectedProjId(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
+                >
+                  <option value="">-- Choose active project --</option>
+                  {projects.map(p => {
+                    const client = allClients.find(c => c.id === p.clientId || c.uid === p.clientId);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.projectName} {client ? `(${client.name})` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">Material Name</label>
@@ -3806,6 +5073,34 @@ export default function ContractorDashboard() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Assign Task To</label>
+                <select
+                  value={timeAssignedTo}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setTimeAssignedTo(val);
+                    if (val === '') {
+                      setTimeAssignedToName('');
+                    } else if (val === 'supervisor_1') {
+                      setTimeAssignedToName('Senior Site Supervisor');
+                    } else if (val === 'engineer_1') {
+                      setTimeAssignedToName('Site Engineer');
+                    } else if (val === 'assistant_1') {
+                      setTimeAssignedToName('Assistant Contractor');
+                    } else {
+                      setTimeAssignedToName(currentUser.name || 'Contractor');
+                    }
+                  }}
+                  className="w-full rounded border border-slate-700 bg-slate-955 px-3 py-1.5 text-xs text-white focus:outline-none"
+                >
+                  <option value="">Contractor (Self - {currentUser.name})</option>
+                  <option value="supervisor_1">Senior Site Supervisor</option>
+                  <option value="engineer_1">Site Engineer</option>
+                  <option value="assistant_1">Assistant Contractor</option>
+                </select>
+              </div>
+
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
@@ -3836,6 +5131,25 @@ export default function ContractorDashboard() {
             </div>
 
             <form onSubmit={handleAddCost} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Select Project / Client</label>
+                <select
+                  required
+                  value={selectedProjId}
+                  onChange={(e) => setSelectedProjId(e.target.value)}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
+                >
+                  <option value="">-- Choose active project --</option>
+                  {projects.map(p => {
+                    const client = allClients.find(c => c.id === p.clientId || c.uid === p.clientId);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.projectName} {client ? `(${client.name})` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">Expense Item Name</label>
                 <input
@@ -4741,252 +6055,6 @@ export default function ContractorDashboard() {
                 <Download className="h-4 w-4" /> Download Photo
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: PROACTIVE PHOTO UPDATE (OPTION 3) */}
-      {showProactiveUpdateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 my-8">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="font-bold text-white text-md">Send Progress Photos Directly</h3>
-                <p className="text-[10px] text-slate-450 mt-0.5">Share site updates directly to client feed anytime</p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowProactiveUpdateModal(false);
-                  setProactivePhotosList([]);
-                  setProactiveCaption('');
-                  setProactiveCategory('General');
-                  stopCamera();
-                }}
-                className="text-slate-400 hover:text-white font-bold text-lg"
-              >
-                &times;
-              </button>
-            </div>
-
-            <form onSubmit={handleSendProactiveUpdate} className="space-y-4">
-              {/* Category selector */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-350 uppercase mb-1.5">Update Category / Area</label>
-                <select
-                  value={proactiveCategory}
-                  onChange={(e) => setProactiveCategory(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-                >
-                  <option value="General">General Update</option>
-                  <option value="Foundation">Foundation</option>
-                  <option value="Kitchen">Kitchen</option>
-                  <option value="Roof">Roof</option>
-                  <option value="Exterior">Exterior</option>
-                  <option value="Site Entrance">Site Entrance</option>
-                  <option value="Bedroom">Bedroom</option>
-                  <option value="Living Room">Living Room</option>
-                  <option value="Bathroom">Bathroom</option>
-                </select>
-              </div>
-
-              {/* Tab Selector */}
-              <div className="flex border-b border-slate-800 pb-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPhotoUploadMethod('file');
-                    stopCamera();
-                  }}
-                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
-                    photoUploadMethod === 'file'
-                      ? 'border-sky-500 text-sky-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-350'
-                  }`}
-                >
-                  Choose From Gallery
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPhotoUploadMethod('camera');
-                    startCamera();
-                  }}
-                  className={`flex-1 pb-1.5 text-center text-xs font-bold border-b-2 transition-all ${
-                    photoUploadMethod === 'camera'
-                      ? 'border-sky-500 text-sky-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-350'
-                  }`}
-                >
-                  Take Picture Live
-                </button>
-              </div>
-
-              {photoUploadMethod === 'file' && (
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-bold text-slate-350 uppercase">Select Images</label>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/png, image/jpeg, image/heic, image/webp"
-                    onChange={handleProactiveFileChange}
-                    className="w-full text-xs text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-700 rounded-md p-1"
-                  />
-                  <span className="text-[10px] text-slate-500 block">Allows JPG, PNG, HEIC, WEBP. Select multiple if needed.</span>
-                </div>
-              )}
-
-              {photoUploadMethod === 'camera' && (
-                <div className="space-y-3">
-                  {cameraError && (
-                    <div className="text-xs text-rose-455 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
-                      {cameraError}
-                    </div>
-                  )}
-
-                  {!capturedImage ? (
-                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center">
-                      {cameraActive ? (
-                        <>
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            className="h-full w-full object-cover"
-                            style={{ transform: cameraFacingMode === 'user' ? 'scaleX(-1)' : 'none' }}
-                          />
-                          <div className="absolute top-3 left-3 bg-rose-500/80 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1.5 animate-pulse">
-                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                            LIVE CAMERA
-                          </div>
-                        </>
-                      ) : (
-                        <div className="text-center p-6 space-y-3">
-                          <Camera className="h-8 w-8 text-slate-500 mx-auto" />
-                          <button
-                            type="button"
-                            onClick={() => startCamera()}
-                            className="px-3.5 py-1.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-bold transition-all"
-                          >
-                            Enable Camera
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="relative aspect-video rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
-                      <img src={capturedImage} alt="Live preview" className="h-full w-full object-contain" />
-                      <div className="absolute top-3 left-3 bg-sky-500/85 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full">
-                        PREVIEW
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-center gap-3">
-                    {cameraActive && !capturedImage && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => capturePhoto(videoRef)}
-                          className="flex-1 py-1.5 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                        >
-                          <Camera className="h-4 w-4" /> Capture Photo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={switchCamera}
-                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
-                        >
-                          Flip
-                        </button>
-                        <button
-                          type="button"
-                          onClick={stopCamera}
-                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-350 text-xs font-bold transition-all"
-                        >
-                          Stop
-                        </button>
-                      </>
-                    )}
-                    {capturedImage && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleAddCapturedPhotoToProactive}
-                          className="flex-1 py-1.5 rounded bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all"
-                        >
-                          Add to Upload List
-                        </button>
-                        <button
-                          type="button"
-                          onClick={retakePhoto}
-                          className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
-                        >
-                          Retake
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Uploads list previews */}
-              {proactivePhotosList.length > 0 && (
-                <div className="space-y-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Selected Photos ({proactivePhotosList.length})</span>
-                  <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto bg-slate-950/20 p-2 rounded-lg border border-slate-850">
-                    {proactivePhotosList.map((src, idx) => (
-                      <div key={idx} className="relative aspect-video rounded overflow-hidden border border-slate-800 bg-slate-950 group">
-                        <img src={src} alt="Thumbnail preview" className="h-full w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => setProactivePhotosList(prev => prev.filter((_, i) => i !== idx))}
-                          className="absolute top-1 right-1 bg-red-500/80 hover:bg-red-600 rounded-full h-4.5 w-4.5 text-white flex items-center justify-center text-[9px] font-bold transition-colors"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Caption field */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-355 uppercase mb-1.5">Caption Note</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Today's slab concrete work completed."
-                  value={proactiveCaption}
-                  onChange={(e) => setProactiveCaption(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              {/* Action buttons */}
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowProactiveUpdateModal(false);
-                    setProactivePhotosList([]);
-                    setProactiveCaption('');
-                    setProactiveCategory('General');
-                    stopCamera();
-                  }}
-                  className="flex-1 rounded border border-slate-800 bg-slate-900 py-2.5 text-xs font-bold text-slate-300 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingProactive || proactivePhotosList.length === 0}
-                  className="flex-1 rounded bg-sky-500 py-2.5 text-xs font-bold text-white hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-lg"
-                >
-                  {isSubmittingProactive ? 'Sending...' : 'SEND TO CLIENT'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
