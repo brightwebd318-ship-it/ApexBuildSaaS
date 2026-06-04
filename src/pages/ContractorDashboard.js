@@ -6,7 +6,7 @@ import {
   Trash2, ClipboardList, Package, BarChart3, MapPin, 
   FileText, Download, Bell, AlertTriangle, Paperclip, Camera,
   X, Maximize2, ExternalLink, Pencil, Folder, File, FileUp, ChevronDown, ChevronRight,
-  Search, Eye, Clock, UserCheck, CreditCard, Settings
+  Search, Eye, Clock, UserCheck, CreditCard, Settings, Terminal
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line } from 'recharts';
 
@@ -61,6 +61,9 @@ export default function ContractorDashboard() {
   const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [showMaterialModal, setShowMaterialModal] = useState(false);
   const [showAddLabourModal, setShowAddLabourModal] = useState(false);
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [costFile, setCostFile] = useState(null);
+  const [materialFile, setMaterialFile] = useState(null);
   
   // Progress Photos modal states
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -170,7 +173,6 @@ export default function ContractorDashboard() {
   const [matQty, setMatQty] = useState('');
   const [matVendor, setMatVendor] = useState('');
   const [matRate, setMatRate] = useState('');
-  const [matInvoiceUrl, setMatInvoiceUrl] = useState('');
 
   // Form State - Timeline Milestone
   const [timeTask, setTimeTask] = useState('');
@@ -186,7 +188,6 @@ export default function ContractorDashboard() {
   const [costAmount, setCostAmount] = useState('');
   const [costCategory, setCostCategory] = useState('Materials');
   const [costStatus, setCostStatus] = useState('Pending');
-  const [costInvoiceUrl, setCostInvoiceUrl] = useState('');
 
   // Form State - Add Labour
   const [labourName, setLabourName] = useState('');
@@ -854,12 +855,16 @@ export default function ContractorDashboard() {
       return;
     }
     try {
+      let fileUrl = '';
+      if (materialFile) {
+        fileUrl = await convertToBase64(materialFile);
+      }
       await firebaseService.addMaterial(selectedProjId, currentUser.uid, {
         name: matName,
         quantity: parseFloat(matQty) || 1,
         vendor: matVendor,
         rate: parseFloat(matRate) || 0,
-        invoiceUrl: matInvoiceUrl
+        invoiceUrl: fileUrl
       });
 
       // Notify Client
@@ -880,7 +885,7 @@ export default function ContractorDashboard() {
       setMatQty('');
       setMatVendor('');
       setMatRate('');
-      setMatInvoiceUrl('');
+      setMaterialFile(null);
       syncAllData();
     } catch (err) {
       alert(err.message);
@@ -960,12 +965,16 @@ export default function ContractorDashboard() {
       return;
     }
     try {
+      let fileUrl = '';
+      if (costFile) {
+        fileUrl = await convertToBase64(costFile);
+      }
       await firebaseService.addCostItem(selectedProjId, currentUser.uid, {
         item: costItem,
         amount: parseFloat(costAmount),
         category: costCategory,
         status: costStatus,
-        invoiceUrl: costInvoiceUrl
+        invoiceUrl: fileUrl
       });
 
       // Notify Client
@@ -984,7 +993,7 @@ export default function ContractorDashboard() {
       setShowCostModal(false);
       setCostItem('');
       setCostAmount('');
-      setCostInvoiceUrl('');
+      setCostFile(null);
       syncAllData();
     } catch (err) {
       alert(err.message);
@@ -1504,6 +1513,49 @@ export default function ContractorDashboard() {
     return matchesSearch && matchesSkill && matchesStatus;
   });
 
+  const generateMinimalDebugLog = () => {
+    const logs = [];
+    
+    // Add Daily Updates
+    globalUpdates.forEach(u => {
+      logs.push({
+        date: u.date || new Date().toISOString().split('T')[0],
+        text: `[Daily Log] [${u.projectName || 'Unknown Proj'}] ${u.workCompleted || 'No description'}. (Labours: ${u.labourCount || u.labour_count || 1}, Delays: ${u.delays || 'None'}${u.remarks ? `, Remarks: ${u.remarks}` : ''})`
+      });
+    });
+
+    // Add Costs (Expenses)
+    globalCosts.forEach(c => {
+      const dateStr = c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      logs.push({
+        date: dateStr,
+        text: `[Expense] [${c.projectName || 'Unknown Proj'}] ${c.item_name || c.item}: ₹${c.amount?.toLocaleString('en-IN')} (${c.category}, Status: ${c.status})`
+      });
+    });
+
+    // Add Materials
+    globalMaterials.forEach(m => {
+      const dateStr = m.createdAt ? new Date(m.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      logs.push({
+        date: dateStr,
+        text: `[Material] [${m.projectName || 'Unknown Proj'}] ${m.name} - Qty: ${m.quantity}, Vendor: ${m.vendor}, Rate: ₹${m.rate?.toLocaleString('en-IN')}, Total: ₹${m.total?.toLocaleString('en-IN')}`
+      });
+    });
+
+    // Add Timeline Tasks
+    globalTimeline.forEach(t => {
+      logs.push({
+        date: t.deadline || new Date().toISOString().split('T')[0],
+        text: `[Task/Milestone] [${t.projectName || 'Unknown Proj'}] ${t.task} (Priority: ${t.priority}, Progress: ${t.progress}%, Status: ${t.status})`
+      });
+    });
+
+    // Sort descending by date
+    logs.sort((a, b) => b.date.localeCompare(a.date));
+
+    return logs.map(l => `[${l.date}] ${l.text}`).join('\n');
+  };
+
   return (
     <div className="min-h-screen pb-20 bg-transparent text-slate-900 dark:text-slate-100 transition-colors duration-300 relative">
       
@@ -1687,7 +1739,7 @@ export default function ContractorDashboard() {
                       onClick={() => setShowSettingsDropdown(false)} 
                     />
                     
-                    <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-md z-50 animate-dropdown">
+                    <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-900/95 p-2 shadow-2xl backdrop-blur-md z-50 animate-dropdown space-y-1">
                       <button
                         type="button"
                         onClick={() => {
@@ -1698,6 +1750,18 @@ export default function ContractorDashboard() {
                       >
                         <Plus className="h-4 w-4 text-sky-400" />
                         Create New Project
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSettingsDropdown(false);
+                          setShowDebugModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors text-left focus:outline-none cursor-pointer border-t border-slate-800/60 pt-2"
+                      >
+                        <Terminal className="h-4 w-4 text-emerald-450" />
+                        Debug Logs
                       </button>
                     </div>
                   </>
@@ -2076,7 +2140,7 @@ export default function ContractorDashboard() {
                       setCostAmount('');
                       setCostCategory('Materials');
                       setCostStatus('Pending');
-                      setCostInvoiceUrl('');
+                      setCostFile(null);
                       if (projects.length > 0 && !selectedProjId) {
                         setSelectedProjId(projects[0].id);
                       }
@@ -2097,7 +2161,7 @@ export default function ContractorDashboard() {
                       setMatQty('');
                       setMatVendor('');
                       setMatRate('');
-                      setMatInvoiceUrl('');
+                      setMaterialFile(null);
                       if (projects.length > 0 && !selectedProjId) {
                         setSelectedProjId(projects[0].id);
                       }
@@ -2510,7 +2574,16 @@ export default function ContractorDashboard() {
                   {projects.map((proj) => {
                     const client = allClients.find(c => c.id === proj.clientId || c.uid === proj.clientId);
                     return (
-                      <div key={proj.id} className="glass-panel rounded-xl p-5 hover:border-slate-750 transition-all flex flex-col justify-between space-y-4">
+                      <div 
+                        key={proj.id} 
+                        onClick={() => {
+                          setSelectedProjId(proj.id);
+                          setSelectedProject(proj);
+                          setActiveHub('sites');
+                          setProjectSubTab('updates');
+                        }}
+                        className="glass-panel rounded-xl p-5 border border-slate-800 hover:border-sky-500/50 hover:bg-slate-900/30 transition-all flex flex-col justify-between space-y-4 cursor-pointer hover:scale-[1.01] active:scale-[0.99] group text-left"
+                      >
                         <div className="space-y-2">
                           <div className="flex justify-between items-start gap-2">
                             <h4 className="font-extrabold text-white text-sm sm:text-md leading-tight">{proj.projectName}</h4>
@@ -2535,7 +2608,8 @@ export default function ContractorDashboard() {
                             <div className="flex items-center gap-1.5">
                               <span className="text-white font-mono">₹{proj.budget?.toLocaleString('en-IN') || '0'}</span>
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setSelectedProjId(proj.id);
                                   setEditBudgetAmount(proj.budget);
                                   setShowEditBudgetModal(true);
@@ -2547,19 +2621,9 @@ export default function ContractorDashboard() {
                               </button>
                             </div>
                           </div>
-                          <div className="flex justify-between text-[10px]">
+                          <div className="flex justify-between items-center text-[10px] text-slate-450">
                             <span>Duration: {proj.startDate} to {proj.deadline || proj.estimatedFinish}</span>
-                            <button
-                              onClick={() => {
-                                  setSelectedProjId(proj.id);
-                                  setSelectedProject(proj);
-                                  setActiveHub('sites');
-                                  setProjectSubTab('updates');
-                              }}
-                              className="text-sky-400 font-bold hover:underline"
-                            >
-                              Manage Site
-                            </button>
+                            <span className="text-sky-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">View Console &rarr;</span>
                           </div>
                         </div>
                       </div>
@@ -3092,7 +3156,17 @@ export default function ContractorDashboard() {
                   <p className="text-xs text-slate-450">Detailed accounting of material orders, quantities, rates, and suppliers</p>
                 </div>
                 <button
-                  onClick={() => setShowMaterialModal(true)}
+                  onClick={() => {
+                    setMatName('');
+                    setMatQty('');
+                    setMatVendor('');
+                    setMatRate('');
+                    setMaterialFile(null);
+                    if (selectedProject) {
+                      setSelectedProjId(selectedProject.id);
+                    }
+                    setShowMaterialModal(true);
+                  }}
                   className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition-colors"
                 >
                   <Plus className="h-4 w-4" /> Add Material Entry
@@ -3251,7 +3325,18 @@ export default function ContractorDashboard() {
                   <p className="text-xs text-slate-455">Track structural permits, equipment logs, and subcontracting expenses in ₹ INR</p>
                 </div>
                 <button
-                  onClick={() => setShowCostModal(true)}
+                  onClick={() => {
+                    setCostItem('');
+                    setCostAmount('');
+                    setCostCategory('Materials');
+                    setCostStatus('Pending');
+                    setCostFile(null);
+                    if (selectedProject) {
+                      setSelectedProjId(selectedProject.id);
+                      setCostCategory('Materials');
+                    }
+                    setShowCostModal(true);
+                  }}
                   className="flex items-center gap-1 rounded bg-sky-500 hover:bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition-colors"
                 >
                   <Plus className="h-4 w-4" /> Add Expense
@@ -4895,7 +4980,7 @@ export default function ContractorDashboard() {
           <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-md">Add Material Entry</h3>
-              <button onClick={() => setShowMaterialModal(false)} className="text-slate-400 hover:text-white font-bold">&times;</button>
+              <button onClick={() => { setShowMaterialModal(false); setMaterialFile(null); }} className="text-slate-400 hover:text-white font-bold">&times;</button>
             </div>
 
             <form onSubmit={handleAddMaterial} className="mt-4 space-y-4">
@@ -4969,20 +5054,19 @@ export default function ContractorDashboard() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Invoice Receipt URL Attachment (Optional)</label>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Invoice Attachment (Image or PDF) (Optional)</label>
                 <input
-                  type="url"
-                  placeholder="https://example.com/receipt.pdf"
-                  value={matInvoiceUrl}
-                  onChange={(e) => setMatInvoiceUrl(e.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => setMaterialFile(e.target.files[0])}
+                  className="w-full text-xs text-slate-305 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-705 rounded-md p-1"
                 />
               </div>
 
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowMaterialModal(false)}
+                  onClick={() => { setShowMaterialModal(false); setMaterialFile(null); }}
                   className="flex-1 rounded border border-slate-800 bg-slate-905 py-2 text-xs font-bold text-slate-300"
                 >
                   Cancel
@@ -5127,7 +5211,7 @@ export default function ContractorDashboard() {
           <div className="w-full max-w-md rounded-2xl border border-slate-805 bg-slate-900 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-md">Add Invoice Expense Item</h3>
-              <button onClick={() => setShowCostModal(false)} className="text-slate-400 hover:text-white font-bold">&times;</button>
+              <button onClick={() => { setShowCostModal(false); setCostFile(null); }} className="text-slate-400 hover:text-white font-bold">&times;</button>
             </div>
 
             <form onSubmit={handleAddCost} className="mt-4 space-y-4">
@@ -5204,13 +5288,12 @@ export default function ContractorDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-305 mb-1">Invoice Receipt PDF URL (Optional)</label>
+                  <label className="block text-[11px] font-semibold text-slate-305 mb-1">Invoice Attachment (Optional)</label>
                   <input
-                    type="url"
-                    placeholder="https://example.com/receipt.pdf"
-                    value={costInvoiceUrl}
-                    onChange={(e) => setCostInvoiceUrl(e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:outline-none"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setCostFile(e.target.files[0])}
+                    className="w-full text-xs text-slate-305 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-sky-500/10 file:text-sky-400 hover:file:bg-sky-500/20 bg-slate-950 border border-slate-705 rounded-md p-1"
                   />
                 </div>
               </div>
@@ -5218,7 +5301,7 @@ export default function ContractorDashboard() {
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowCostModal(false)}
+                  onClick={() => { setShowCostModal(false); setCostFile(null); }}
                   className="flex-1 rounded border border-slate-805 bg-slate-905 py-2 text-xs font-bold text-slate-300"
                 >
                   Cancel
@@ -5363,6 +5446,55 @@ export default function ContractorDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 11: SYSTEM DEBUG CONSOLE */}
+      {showDebugModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div>
+                <h3 className="font-bold text-white text-md">System Debug Console</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Consolidated activity log for debugging and audit</p>
+              </div>
+              <button 
+                onClick={() => setShowDebugModal(false)} 
+                className="text-slate-400 hover:text-white text-xl font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="mt-4 flex-1 overflow-hidden flex flex-col min-h-0">
+              <textarea
+                readOnly
+                value={generateMinimalDebugLog()}
+                className="w-full flex-1 rounded border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-emerald-400 focus:outline-none overflow-y-auto"
+                placeholder="No logs registered yet."
+              />
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(generateMinimalDebugLog());
+                  alert("Copied logs to clipboard!");
+                }}
+                className="rounded bg-sky-500 hover:bg-sky-600 px-4 py-2 text-xs font-bold text-white transition-colors"
+              >
+                Copy to Clipboard
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDebugModal(false)}
+                className="rounded border border-slate-805 bg-slate-905 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

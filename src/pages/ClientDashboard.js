@@ -7,7 +7,7 @@ import {
   MapPin, CheckCircle, Image as ImageIcon, Download,
   User, Lock, Send, ChevronRight, ChevronDown, Folder, 
   File, Plus, X, Maximize2, ExternalLink, ShieldCheck, Mail, Phone, MessageSquare,
-  Bell, Trash2, FileUp, Eye, AlertTriangle, CreditCard, Clock
+  Bell, Trash2, FileUp, Eye, AlertTriangle, CreditCard, Clock, Paperclip
 } from 'lucide-react';
 import { ResponsiveContainer, Cell, PieChart, Pie, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
@@ -1855,6 +1855,7 @@ export default function ClientDashboard() {
                                   <th className="py-3 px-4">Expense Details</th>
                                   <th className="py-3 px-4">Category</th>
                                   <th className="py-3 px-4">Amount</th>
+                                  <th className="py-3 px-4">Invoice</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-850 bg-slate-950/20">
@@ -1870,6 +1871,18 @@ export default function ClientDashboard() {
                                     </td>
                                     <td className="py-3 px-4 text-slate-450">{c.category}</td>
                                     <td className="py-3 px-4 font-bold text-white font-mono">₹{c.amount.toLocaleString('en-IN')}</td>
+                                    <td className="py-3 px-4">
+                                      {c.invoiceUrl ? (
+                                        <button
+                                          onClick={() => triggerDownload(c.invoiceUrl, `${c.item_name || c.item}_invoice.pdf`)}
+                                          className="inline-flex items-center gap-1 text-[10px] text-sky-400 hover:underline cursor-pointer"
+                                        >
+                                          <Paperclip className="h-3 w-3" /> View File
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-600">No file</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
